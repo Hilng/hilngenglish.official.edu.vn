@@ -64,14 +64,10 @@
   <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
 
   <style>
-    body {
-      font-family: 'Inter', sans-serif;
-    }
-    .font-display {
-      font-family: 'Plus Jakarta Sans', sans-serif;
-    }
+    body { font-family: 'Inter', sans-serif; }
+    .font-display { font-family: 'Plus Jakarta Sans', sans-serif; }
     .glass-panel {
-      background: rgba(255, 255, 255, 0.9);
+      background: rgba(255, 255, 255, 0.92);
       backdrop-filter: blur(18px);
       -webkit-backdrop-filter: blur(18px);
       border: 1px solid rgba(226, 232, 240, 0.85);
@@ -82,45 +78,24 @@
       border-color: rgba(51, 65, 85, 0.75);
       box-shadow: 0 20px 50px -24px rgba(0, 0, 0, 0.65);
     }
-    .custom-scrollbar::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
-    }
-    .custom-scrollbar::-webkit-scrollbar-track {
-      background: transparent;
-    }
-    .custom-scrollbar::-webkit-scrollbar-thumb {
-      background: rgba(148, 163, 184, 0.45);
-      border-radius: 9999px;
-    }
-    .no-scrollbar::-webkit-scrollbar {
-      display: none;
-    }
-    .no-scrollbar {
-      -ms-overflow-style: none;
-      scrollbar-width: none;
-    }
-    .pt-safe {
-      padding-top: max(0.75rem, env(safe-area-inset-top));
-    }
-    .pb-safe {
-      padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
-    }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.45); border-radius: 9999px; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    .pt-safe { padding-top: max(0.75rem, env(safe-area-inset-top)); }
+    .pb-safe { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
     @keyframes floatSoft {
       0%, 100% { transform: translateY(0px); }
       50% { transform: translateY(-5px); }
     }
-    .animate-float {
-      animation: floatSoft 3.2s ease-in-out infinite;
-    }
+    .animate-float { animation: floatSoft 3.2s ease-in-out infinite; }
     @keyframes pulseRing {
       0% { transform: scale(0.95); opacity: 0.7; }
       70% { transform: scale(1.25); opacity: 0; }
       100% { transform: scale(1.25); opacity: 0; }
     }
-    .recording-ring {
-      animation: pulseRing 1.4s cubic-bezier(0.24, 0, 0.38, 1) infinite;
-    }
+    .recording-ring { animation: pulseRing 1.4s cubic-bezier(0.24, 0, 0.38, 1) infinite; }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 antialiased selection:bg-indigo-500 selection:text-white">
@@ -133,7 +108,6 @@
   <div id="auth-screen" class="min-h-screen flex flex-col justify-between bg-gradient-to-br from-indigo-50 via-white to-amber-50/40 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/30">
     <header class="w-full max-w-7xl mx-auto px-4 sm:px-6 py-5 flex items-center justify-between">
       <div class="flex items-center gap-3.5">
-        <!-- Custom Modern Brand Emblem -->
         <div class="relative w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-600 via-violet-600 to-amber-500 p-[2px] shadow-lg shadow-indigo-500/30 shrink-0">
           <div class="w-full h-full rounded-[14px] bg-slate-950/90 flex items-center justify-center relative overflow-hidden">
             <div class="absolute inset-0 bg-gradient-to-tr from-indigo-600/30 via-transparent to-amber-400/25"></div>
@@ -156,7 +130,7 @@
             <span class="font-display font-extrabold text-xl tracking-tight">Hilng <span class="text-indigo-600 dark:text-indigo-400">English</span></span>
             <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">B1 PET</span>
           </div>
-          <span class="block text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">Cambridge B1 Preliminary (PET)</span>
+          <span class="block text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">Cambridge Preliminary Studio</span>
         </div>
       </div>
 
@@ -172,11 +146,10 @@
     </header>
 
     <main class="w-full max-w-7xl mx-auto px-4 sm:px-6 py-6 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-      <!-- Left Hero -->
       <div class="lg:col-span-6 space-y-6">
         <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-700 dark:text-indigo-300 text-xs font-bold">
           <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
-          B1 Cambridge PET Studio • 2026 version
+          Cambridge PET Studio 2026 • Chấm AI Tiêu Chí B1 Thực Tế
         </div>
 
         <h1 class="font-display font-extrabold text-3xl sm:text-5xl leading-tight tracking-tight">
@@ -184,7 +157,7 @@
         </h1>
 
         <p class="text-slate-600 dark:text-slate-300 text-sm sm:text-base leading-relaxed">
-          Luyện tập đủ 4 kỹ năng <strong>Reading • Listening • Writing • Speaking</strong> chuẩn cấu trúc hội đồng thi Cambridge. Ghi âm Speaking trực tiếp, chấm điểm AI phân tích chi tiết 4 tiêu chí B1 và đồng bộ tức thì giữa Giáo viên — Học sinh.
+          Luyện tập đủ 4 kỹ năng <strong>Reading • Listening • Writing • Speaking</strong> chuẩn cấu trúc hội đồng thi Cambridge. Ghi âm Speaking trực tiếp, chấm điểm AI phân tích chi tiết 4 tiêu chí B1 và đồng bộ tức thì giữa Manager — Giáo viên — Học sinh.
         </p>
 
         <div class="grid grid-cols-3 gap-2.5 sm:gap-3 pt-1">
@@ -203,10 +176,8 @@
         </div>
       </div>
 
-      <!-- Right Auth Card -->
       <div class="lg:col-span-6">
         <div class="glass-panel rounded-3xl p-6 sm:p-8 max-w-lg mx-auto space-y-5">
-          <!-- Role Tabs -->
           <div class="grid grid-cols-3 gap-1.5 p-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800/90">
             <button id="role-tab-student" onclick="switchAuthRole('student')" class="py-2.5 px-2 rounded-xl font-bold text-xs sm:text-sm bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm transition">
               Học Sinh
@@ -243,13 +214,10 @@
               <input id="auth-password" type="password" required placeholder="••••••••" class="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm outline-none focus:border-indigo-500" />
             </div>
 
-            <!-- Teacher / Manager Internal Code -->
             <div id="teacher-code-group" class="hidden space-y-1.5 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30">
-              <div class="flex items-center justify-between">
-                <label id="internal-code-label" class="text-xs font-extrabold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
-                  <i data-lucide="key-round" class="w-3.5 h-3.5"></i> Mã xác thực nội bộ Giáo viên
-                </label>
-              </div>
+              <label id="internal-code-label" class="text-xs font-extrabold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                <i data-lucide="key-round" class="w-3.5 h-3.5"></i> Mã xác thực nội bộ Giáo viên
+              </label>
               <input id="auth-teacher-code" type="password" autocomplete="off" placeholder="Nhập mã xác thực nội bộ được cấp..." class="w-full px-3.5 py-2.5 rounded-xl border border-amber-400/50 bg-white dark:bg-slate-900 text-sm font-mono outline-none" />
             </div>
 
@@ -286,13 +254,10 @@
         </div>
       </div>
 
-      <!-- User Mini Card -->
       <div id="sidebar-user-card" class="p-4 mx-3 mt-4 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80"></div>
 
-      <!-- Navigation -->
       <nav id="sidebar-nav" class="flex-1 px-3 py-4 space-y-1 overflow-y-auto custom-scrollbar"></nav>
 
-      <!-- Bottom Actions -->
       <div class="p-4 border-t border-slate-200 dark:border-slate-800 space-y-2">
         <button onclick="openSyncModal()" class="w-full py-2.5 px-3 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 font-bold text-xs flex items-center justify-center gap-2 transition">
           <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Đồng Bộ Đa Thiết Bị
@@ -305,7 +270,6 @@
 
     <!-- Content Area -->
     <div class="flex-1 lg:pl-72 flex flex-col min-h-screen pb-24 lg:pb-8">
-      <!-- Top Header -->
       <header class="sticky top-0 z-20 pt-safe bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-slate-200/80 dark:border-slate-800 px-4 sm:px-6 py-3 flex items-center justify-between gap-3">
         <div class="flex items-center gap-3 min-w-0">
           <div class="lg:hidden w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600 via-violet-600 to-amber-500 p-[1.5px] shadow-sm shrink-0">
@@ -329,35 +293,29 @@
         </div>
 
         <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          <!-- Student XP & Level Pill -->
           <div id="header-student-stats" class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs font-extrabold text-amber-700 dark:text-amber-300">
             <span id="header-xp-text">0 XP</span>
             <span>•</span>
             <span id="header-level-text">Lv.1</span>
           </div>
 
-          <!-- Quick Sync Button on Mobile -->
           <button onclick="openSyncModal()" title="Đồng bộ đa thiết bị" class="lg:hidden p-2.5 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition">
             <i data-lucide="refresh-cw" class="w-4 h-4"></i>
           </button>
 
-          <!-- Sound Toggle -->
           <button onclick="toggleSoundEffect()" id="sound-toggle-btn" title="Bật/Tắt âm thanh thông báo" class="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition">
             <span id="sound-icon-wrap" class="flex items-center justify-center w-4 h-4 text-indigo-600 dark:text-indigo-400"></span>
           </button>
 
-          <!-- Notification Bell -->
           <button onclick="openNotificationDrawer()" class="relative p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition" title="Thông báo & Nhắc Deadline">
             <i data-lucide="bell" class="w-4 h-4 text-slate-700 dark:text-slate-200"></i>
             <span id="notif-badge" class="hidden absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-extrabold flex items-center justify-center">0</span>
           </button>
 
-          <!-- Theme Toggle -->
           <button onclick="toggleTheme()" title="Đổi giao diện Sáng / Tối" class="p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition">
             <span id="app-theme-icon-wrap" class="flex items-center justify-center w-4 h-4 text-amber-500"></span>
           </button>
 
-          <!-- Logout Button on Header -->
           <button onclick="logoutUser()" class="px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 font-bold text-xs flex items-center gap-1.5 transition" title="Đăng xuất">
             <i data-lucide="log-out" class="w-4 h-4"></i>
             <span class="hidden md:inline">Đăng xuất</span>
@@ -365,10 +323,8 @@
         </div>
       </header>
 
-      <!-- Deadline Alert Strip for Students -->
       <div id="deadline-banner-slot"></div>
 
-      <!-- Dynamic Main Content -->
       <main id="main-content" class="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 py-6"></main>
     </div>
 
@@ -401,9 +357,9 @@
 
   <script>
     // ==================== CONSTANTS & CATALOGS ====================
-    const STORAGE_KEY = "HILNG_PET_STUDIO_STATE_V6";
-    const BACKUP_STORAGE_KEY = "HILNG_PET_STUDIO_BACKUP_V6";
-    const SYNC_CHANNEL_NAME = "HILNG_PET_REALTIME_SYNC_V6";
+    const STORAGE_KEY = "HILNG_PET_STUDIO_STATE_V7";
+    const BACKUP_STORAGE_KEY = "HILNG_PET_STUDIO_BACKUP_V7";
+    const SYNC_CHANNEL_NAME = "HILNG_PET_REALTIME_SYNC_V7";
     const TEACHER_SECRET_CODE = "HILNG-PET-2026";
     const MANAGER_SECRET_CODE = "HILNG-MANAGER-2026";
 
@@ -437,6 +393,12 @@
       { id: "distinction", title: "Chinh Phục 160+", desc: "Đạt mốc 1500 XP & phong độ Distinction", icon: "👑", reqXp: 1500 }
     ];
 
+    const DAILY_QUESTS = [
+      { id: "q_vocab", title: "Ôn 15 từ vựng chủ đề Cambridge B1", xp: 30, icon: "📚" },
+      { id: "q_listen", title: "Luyện nghe 1 đoạn hội thoại PET Part 2", xp: 40, icon: "🎧" },
+      { id: "q_speak", title: "Ghi âm trả lời 1 câu hỏi Speaking Part 1", xp: 50, icon: "🎙️" }
+    ];
+
     const STUDENT_NAV = [
       { id: "dashboard", label: "Tổng Quan & Lộ Trình", icon: "layout-dashboard" },
       { id: "reading", label: "Phòng Thi Reading", icon: "book-open" },
@@ -450,7 +412,7 @@
     ];
 
     const TEACHER_NAV = [
-      { id: "teacher-dashboard", label: "Quản Lý Lớp & Điểm", icon: "users" },
+      { id: "teacher-dashboard", label: "Quản Lý Lớp & Bảng Điểm", icon: "users" },
       { id: "teacher-exams", label: "Soạn & Sửa Đề Thi", icon: "file-edit" },
       { id: "teacher-materials", label: "Kho Học Liệu & Khóa Học", icon: "folder-up" },
       { id: "teacher-grading", label: "Giao & Chấm Bài Tập", icon: "check-square" },
@@ -804,7 +766,7 @@
     // ==================== MULTI-DEVICE COMPACT SYNC CODE HELPERS ====================
     function encodeSyncPackage(stateObj) {
       const cleanPayload = {
-        v: 6,
+        v: 7,
         ts: Date.now(),
         classes: stateObj.classes || [],
         managers: stateObj.managers || [],
@@ -898,9 +860,7 @@
       playNotificationSound("deadline");
 
       setTimeout(() => {
-        if (toast && toast.parentElement) {
-          toast.remove();
-        }
+        if (toast && toast.parentElement) toast.remove();
       }, 6000);
     }
 
@@ -962,15 +922,12 @@
 
     function switchAuthRole(role) {
       currentAuthRole = role;
-      const roles = ["student", "teacher", "manager"];
-      roles.forEach(r => {
+      ["student", "teacher", "manager"].forEach(r => {
         const btn = document.getElementById(`role-tab-${r}`);
         if (!btn) return;
-        if (r === role) {
-          btn.className = "py-2.5 px-2 rounded-xl font-bold text-xs sm:text-sm bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm transition";
-        } else {
-          btn.className = "py-2.5 px-2 rounded-xl font-bold text-xs sm:text-sm text-slate-600 dark:text-slate-400 transition";
-        }
+        btn.className = r === role
+          ? "py-2.5 px-2 rounded-xl font-bold text-xs sm:text-sm bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm transition"
+          : "py-2.5 px-2 rounded-xl font-bold text-xs sm:text-sm text-slate-600 dark:text-slate-400 transition";
       });
 
       const badgeEl = document.getElementById("auth-role-badge");
@@ -1004,9 +961,7 @@
     }
 
     function switchAuthMode(mode) {
-      if (currentAuthRole === "student") {
-        mode = "login";
-      }
+      if (currentAuthRole === "student") mode = "login";
       currentAuthMode = mode;
 
       const loginBtn = document.getElementById("mode-tab-login");
@@ -1122,7 +1077,7 @@
       switchAuthRole("student");
     }
 
-    // ==================== STUDENT SCORE, LEVEL & STREAK HELPERS (0-BASED START) ====================
+    // ==================== STUDENT SCORE, LEVEL & STREAK HELPERS ====================
     function calcLevel(xp = 0) {
       const safeXp = Math.max(0, Number(xp) || 0);
       return Math.floor(safeXp / 250) + 1;
@@ -1137,8 +1092,7 @@
         Number(s.speakingScore) || 0
       ].filter(v => v > 0);
       if (scores.length === 0) return 0;
-      const sum = scores.reduce((acc, v) => acc + v, 0);
-      return Math.round(sum / scores.length);
+      return Math.round(scores.reduce((acc, v) => acc + v, 0) / scores.length);
     }
 
     function getCambridgeGradeLabel(score) {
@@ -1181,6 +1135,20 @@
       appState.currentUser = { ...appState.students[idx], role: "student" };
       updateHeaderStats();
       saveState({ silent: false, skipRender: true });
+    }
+
+    function completeDailyQuest(questId, xpReward) {
+      if (!appState.currentUser || appState.currentUser.role !== "student") return;
+      const idx = appState.students.findIndex(s => s.id === appState.currentUser.id);
+      if (idx === -1) return;
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const key = `${todayStr}_${questId}`;
+      const completed = Array.isArray(appState.students[idx].completedQuests) ? appState.students[idx].completedQuests : [];
+      if (completed.includes(key)) return;
+      completed.push(key);
+      appState.students[idx].completedQuests = completed;
+      addXp(xpReward);
+      renderCurrentView();
     }
 
     // ==================== WORKSPACE SHELL & NAVIGATION ====================
@@ -1591,6 +1559,42 @@
       reader.readAsText(file);
     }
 
+    // ==================== RADAR SVG CHART FOR CAMBRIDGE SCALE ====================
+    function renderCambridgeRadarSvg(rScore, lScore, wScore, sScore) {
+      const mapScale = (v) => {
+        const n = Number(v) || 0;
+        if (n <= 0) return 0.08;
+        return Math.min(1, Math.max(0.15, (n - 110) / 60));
+      };
+      const cx = 110, cy = 110, maxR = 76;
+      const rVal = mapScale(rScore) * maxR;
+      const lVal = mapScale(lScore) * maxR;
+      const wVal = mapScale(wScore) * maxR;
+      const sVal = mapScale(sScore) * maxR;
+
+      const pts = [
+        `${cx},${cy - rVal}`,
+        `${cx + lVal},${cy}`,
+        `${cx},${cy + wVal}`,
+        `${cx - sVal},${cy}`
+      ].join(" ");
+
+      return `
+        <svg viewBox="0 0 220 220" class="w-48 h-48 mx-auto">
+          <polygon points="${cx},${cy-maxR} ${cx+maxR},${cy} ${cx},${cy+maxR} ${cx-maxR},${cy}" fill="none" stroke="rgba(148,163,184,0.3)" stroke-width="1"/>
+          <polygon points="${cx},${cy-maxR*0.66} ${cx+maxR*0.66},${cy} ${cx},${cy+maxR*0.66} ${cx-maxR*0.66},${cy}" fill="none" stroke="rgba(148,163,184,0.25)" stroke-width="1"/>
+          <polygon points="${cx},${cy-maxR*0.33} ${cx+maxR*0.33},${cy} ${cx},${cy+maxR*0.33} ${cx-maxR*0.33},${cy}" fill="none" stroke="rgba(148,163,184,0.2)" stroke-width="1"/>
+          <line x1="${cx}" y1="${cy-maxR}" x2="${cx}" y2="${cy+maxR}" stroke="rgba(148,163,184,0.25)" />
+          <line x1="${cx-maxR}" y1="${cy}" x2="${cx+maxR}" y2="${cy}" stroke="rgba(148,163,184,0.25)" />
+          <polygon points="${pts}" fill="rgba(79,70,229,0.28)" stroke="#4f46e5" stroke-width="2.5" />
+          <text x="${cx}" y="18" text-anchor="middle" class="fill-slate-600 dark:fill-slate-300 text-[10px] font-bold">Reading (${Number(rScore)||0})</text>
+          <text x="206" y="${cy+4}" text-anchor="end" class="fill-slate-600 dark:fill-slate-300 text-[10px] font-bold">L (${Number(lScore)||0})</text>
+          <text x="${cx}" y="210" text-anchor="middle" class="fill-slate-600 dark:fill-slate-300 text-[10px] font-bold">Writing (${Number(wScore)||0})</text>
+          <text x="14" y="${cy+4}" text-anchor="start" class="fill-slate-600 dark:fill-slate-300 text-[10px] font-bold">S (${Number(sScore)||0})</text>
+        </svg>
+      `;
+    }
+
     // ==================== REAL GEMINI AI PET EXAMINER ENGINE ====================
     async function evaluateWithCambridgePetAI(skillType, taskPrompt, studentResponseText) {
       const apiKey = "";
@@ -1661,9 +1665,7 @@ ${studentResponseText}
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
           });
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-          }
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const result = await response.json();
           const rawJson = result?.candidates?.[0]?.content?.parts?.[0]?.text;
           if (!rawJson) throw new Error("Empty AI response");
@@ -1852,7 +1854,7 @@ ${studentResponseText}
 
       const spokenContent = speakingRecorderState.capturedTranscript
         ? `${speakingRecorderState.capturedTranscript} (Thời lượng ghi âm: ${speakingRecorderState.secondsElapsed} giây)`
-        : `[Thí sinh đã ghi âm trực tiếp qua micro thời lượng ${speakingRecorderState.secondsElapsed} giây nhưng trình duyệt không hỗ trợ tách phụ đề tự động. Hãy đánh giá dựa trên mức độ hoàn thành lượt nói ${speakingRecorderState.secondsElapsed}s cho câu hỏi PET này.]`;
+        : `[Thí sinh đã ghi âm trực tiếp qua micro thời lượng ${speakingRecorderState.secondsElapsed} giây cho câu hỏi PET này.]`;
 
       try {
         const evalResult = await evaluateWithCambridgePetAI("speaking", exam.prompt || exam.title, spokenContent);
@@ -1900,6 +1902,23 @@ ${studentResponseText}
           btn.textContent = "Gửi Giám Khảo AI Chấm Điểm";
         }
       }
+    }
+
+    // ==================== LISTENING 2-PLAY EXAM ENGINE ====================
+    let listeningPlayCounts = {};
+
+    function playExamAudioWithLimit(examId, audioUrl) {
+      const count = listeningPlayCounts[examId] || 0;
+      if (count >= 2) {
+        openAlertModal("Hết lượt nghe chuẩn phòng thi", "Theo quy định phòng thi Cambridge PET, mỗi đoạn băng Listening chỉ được nghe tối đa 2 lần.");
+        return;
+      }
+      listeningPlayCounts[examId] = count + 1;
+      const audioEl = document.getElementById(`audio-player-${examId}`);
+      if (audioEl && audioUrl) {
+        audioEl.play().catch(() => {});
+      }
+      renderCurrentView();
     }
 
     // ==================== VIEW RENDERERS ====================
@@ -1986,6 +2005,8 @@ ${studentResponseText}
       const overall = calcOverallScore(user);
       const gradeLabel = getCambridgeGradeLabel(overall);
       const xp = Number(user.xp) || 0;
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const completedQuests = Array.isArray(user.completedQuests) ? user.completedQuests : [];
 
       if (tab === "dashboard") {
         container.innerHTML = `
@@ -1996,7 +2017,7 @@ ${studentResponseText}
                 <h2 class="font-display font-extrabold text-2xl mt-0.5">${escapeHtml(user.name || user.email)}</h2>
                 <p class="text-xs sm:text-sm text-slate-500 mt-1">Điểm trung bình: <strong>${overall}</strong> (${escapeHtml(gradeLabel)}) • Chuỗi ngày học: <strong>${Number(user.streak) || 0} ngày</strong></p>
               </div>
-              <div class="flex flex-wrap gap-2">
+              <div class="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
                 <button onclick="navigateTo('reading')" class="px-4 py-2.5 rounded-2xl bg-indigo-600 text-white text-xs font-bold">Phòng Reading</button>
                 <button onclick="navigateTo('listening')" class="px-4 py-2.5 rounded-2xl bg-violet-600 text-white text-xs font-bold">Phòng Listening</button>
                 <button onclick="navigateTo('writing')" class="px-4 py-2.5 rounded-2xl bg-amber-600 text-white text-xs font-bold">Phòng Writing</button>
@@ -2004,26 +2025,38 @@ ${studentResponseText}
               </div>
             </div>
 
-            <!-- 4 Skills Score Cards (Starts from 0) -->
-            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <div class="glass-panel rounded-2xl p-4">
-                <div class="text-xs font-bold text-slate-500">Reading PET</div>
-                <div class="text-2xl font-display font-extrabold text-indigo-600 mt-1">${Number(user.readingScore) || 0}</div>
+            <!-- 4 Skills Score Cards & Radar Chart -->
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              <div class="lg:col-span-5 glass-panel rounded-3xl p-5 flex flex-col justify-center items-center">
+                <div class="text-xs font-extrabold uppercase tracking-wider text-slate-500 mb-1">Biểu Đồ Năng Lực 4 Kỹ Năng</div>
+                ${renderCambridgeRadarSvg(user.readingScore, user.listeningScore, user.writingScore, user.speakingScore)}
               </div>
-              <div class="glass-panel rounded-2xl p-4">
-                <div class="text-xs font-bold text-slate-500">Listening PET</div>
-                <div class="text-2xl font-display font-extrabold text-violet-600 mt-1">${Number(user.listeningScore) || 0}</div>
-              </div>
-              <div class="glass-panel rounded-2xl p-4">
-                <div class="text-xs font-bold text-slate-500">Writing PET</div>
-                <div class="text-2xl font-display font-extrabold text-amber-600 mt-1">${Number(user.writingScore) || 0}</div>
-              </div>
-              <div class="glass-panel rounded-2xl p-4">
-                <div class="text-xs font-bold text-slate-500">Speaking PET</div>
-                <div class="text-2xl font-display font-extrabold text-emerald-600 mt-1">${Number(user.speakingScore) || 0}</div>
+
+              <div class="lg:col-span-7 grid grid-cols-2 gap-3">
+                <div class="glass-panel rounded-2xl p-4 flex flex-col justify-between">
+                  <div class="text-xs font-bold text-slate-500">Reading PET</div>
+                  <div class="text-3xl font-display font-extrabold text-indigo-600 mt-1">${Number(user.readingScore) || 0}</div>
+                  <div class="text-[11px] text-slate-400">Thang điểm 120–170</div>
+                </div>
+                <div class="glass-panel rounded-2xl p-4 flex flex-col justify-between">
+                  <div class="text-xs font-bold text-slate-500">Listening PET</div>
+                  <div class="text-3xl font-display font-extrabold text-violet-600 mt-1">${Number(user.listeningScore) || 0}</div>
+                  <div class="text-[11px] text-slate-400">Thang điểm 120–170</div>
+                </div>
+                <div class="glass-panel rounded-2xl p-4 flex flex-col justify-between">
+                  <div class="text-xs font-bold text-slate-500">Writing PET</div>
+                  <div class="text-3xl font-display font-extrabold text-amber-600 mt-1">${Number(user.writingScore) || 0}</div>
+                  <div class="text-[11px] text-slate-400">Giám khảo AI 4 tiêu chí</div>
+                </div>
+                <div class="glass-panel rounded-2xl p-4 flex flex-col justify-between">
+                  <div class="text-xs font-bold text-slate-500">Speaking PET</div>
+                  <div class="text-3xl font-display font-extrabold text-emerald-600 mt-1">${Number(user.speakingScore) || 0}</div>
+                  <div class="text-[11px] text-slate-400">Ghi âm trực tiếp Micro</div>
+                </div>
               </div>
             </div>
 
+            <!-- 5 Stages Cambridge Roadmap -->
             <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
               ${CAMBRIDGE_STAGES.map(st => {
                 const reached = overall >= st.minScore && overall > 0;
@@ -2037,6 +2070,28 @@ ${studentResponseText}
               }).join("")}
             </div>
 
+            <!-- Daily Quests -->
+            <div class="glass-panel rounded-3xl p-6 space-y-3">
+              <h3 class="font-display font-extrabold text-base">Nhiệm Vụ Thường Ngày Tích Lũy XP</h3>
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                ${DAILY_QUESTS.map(q => {
+                  const isDone = completedQuests.includes(`${todayStr}_${q.id}`);
+                  return `
+                    <div class="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+                      <div>
+                        <div class="text-sm font-bold">${q.icon} ${escapeHtml(q.title)}</div>
+                        <div class="text-xs font-extrabold text-amber-600 mt-1">+${q.xp} XP</div>
+                      </div>
+                      <button ${isDone ? "disabled" : ""} onclick="completeDailyQuest('${q.id}', ${q.xp})" class="px-3.5 py-2 rounded-xl text-xs font-bold shrink-0 ${isDone ? "bg-emerald-500/15 text-emerald-600" : "bg-indigo-600 text-white"}">
+                        ${isDone ? "Đã nhận" : "Hoàn thành"}
+                      </button>
+                    </div>
+                  `;
+                }).join("")}
+              </div>
+            </div>
+
+            <!-- Badges -->
             <div class="glass-panel rounded-3xl p-6">
               <h3 class="font-display font-extrabold text-base mb-3">Huy Hiệu Cambridge PET (${xp} XP)</h3>
               <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
@@ -2068,30 +2123,39 @@ ${studentResponseText}
             </div>
             ${list.length === 0
               ? `<div class="glass-panel rounded-3xl p-8 text-center text-sm text-slate-500">Hiện chưa có đề thi ${escapeHtml(tab)} nào từ giáo viên.</div>`
-              : list.map(ex => `
-                  <div class="glass-panel rounded-3xl p-6 space-y-4">
-                    <div class="flex flex-wrap items-center justify-between gap-2">
-                      <h3 class="font-display font-extrabold text-base">${escapeHtml(ex.title || "Đề luyện tập PET")}</h3>
-                      <span class="px-3 py-1 rounded-full text-[11px] font-bold bg-indigo-500/10 text-indigo-600">Thang điểm 120–170</span>
-                    </div>
-                    ${ex.audioUrl ? `<audio controls src="${escapeHtml(ex.audioUrl)}" class="w-full"></audio>` : ""}
-                    ${ex.passage ? `<div class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/70 text-xs sm:text-sm leading-relaxed whitespace-pre-line">${escapeHtml(ex.passage)}</div>` : ""}
-                    ${ex.question ? `
-                      <div class="space-y-2.5">
-                        <div class="font-bold text-sm">${escapeHtml(ex.question)}</div>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          ${(ex.options || []).map((opt, idx) => `
-                            <label class="flex items-center gap-2.5 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-indigo-500 text-xs sm:text-sm">
-                              <input type="radio" name="ans-${ex.id}" value="${idx}" />
-                              <span>${escapeHtml(opt)}</span>
-                            </label>
-                          `).join("")}
-                        </div>
-                        <button onclick="submitObjectiveExam('${tab}', '${ex.id}')" class="mt-2 px-5 py-2.5 rounded-2xl bg-indigo-600 text-white text-xs font-bold">Nộp Bài & Chấm Điểm</button>
+              : list.map(ex => {
+                  const usedPlays = listeningPlayCounts[ex.id] || 0;
+                  return `
+                    <div class="glass-panel rounded-3xl p-6 space-y-4">
+                      <div class="flex flex-wrap items-center justify-between gap-2">
+                        <h3 class="font-display font-extrabold text-base">${escapeHtml(ex.title || "Đề luyện tập PET")}</h3>
+                        <span class="px-3 py-1 rounded-full text-[11px] font-bold bg-indigo-500/10 text-indigo-600">Thang điểm 120–170</span>
                       </div>
-                    ` : ""}
-                  </div>
-                `).join("")
+                      ${ex.audioUrl ? `
+                        <div class="p-3.5 rounded-2xl bg-violet-500/10 border border-violet-500/20 flex flex-wrap items-center justify-between gap-3">
+                          <div class="text-xs font-bold text-violet-700 dark:text-violet-300">Chế độ phòng thi Listening: Đã nghe ${usedPlays}/2 lượt</div>
+                          <button onclick="playExamAudioWithLimit('${ex.id}', '${escapeHtml(ex.audioUrl)}')" class="px-4 py-2 rounded-xl bg-violet-600 text-white text-xs font-bold">Phát Băng Nghe</button>
+                          <audio id="audio-player-${ex.id}" src="${escapeHtml(ex.audioUrl)}" class="hidden"></audio>
+                        </div>
+                      ` : ""}
+                      ${ex.passage ? `<div class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/70 text-xs sm:text-sm leading-relaxed whitespace-pre-line">${escapeHtml(ex.passage)}</div>` : ""}
+                      ${ex.question ? `
+                        <div class="space-y-2.5">
+                          <div class="font-bold text-sm">${escapeHtml(ex.question)}</div>
+                          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            ${(ex.options || []).map((opt, idx) => `
+                              <label class="flex items-center gap-2.5 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 cursor-pointer hover:border-indigo-500 text-xs sm:text-sm">
+                                <input type="radio" name="ans-${ex.id}" value="${idx}" />
+                                <span>${escapeHtml(opt)}</span>
+                              </label>
+                            `).join("")}
+                          </div>
+                          <button onclick="submitObjectiveExam('${tab}', '${ex.id}')" class="mt-2 px-5 py-2.5 rounded-2xl bg-indigo-600 text-white text-xs font-bold">Nộp Bài & Chấm Điểm</button>
+                        </div>
+                      ` : ""}
+                    </div>
+                  `;
+                }).join("")
             }
           </div>
         `;
@@ -2194,21 +2258,35 @@ ${studentResponseText}
       }
 
       if (tab === "assignments") {
-        const items = appState.assignments || [];
+        const items = (appState.assignments || []).filter(a => !a.classId || !user.classId || a.classId === user.classId);
         container.innerHTML = `
           <div class="glass-panel rounded-3xl p-6 space-y-4">
             <h2 class="font-display font-extrabold text-xl">Bài Tập Về Nhà Từ Giáo Viên</h2>
             ${items.length === 0
               ? `<p class="text-sm text-slate-500">Chưa có bài tập về nhà nào được giao.</p>`
-              : `<div class="space-y-3">${items.map(a => `
-                  <div class="p-4 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-2">
-                    <div class="flex items-center justify-between gap-2">
-                      <div class="font-bold text-sm">${escapeHtml(a.title)}</div>
-                      ${a.deadline ? `<span class="text-xs font-extrabold text-amber-600">Hạn nộp: ${escapeHtml(a.deadline)}</span>` : ""}
+              : `<div class="space-y-4">${items.map(a => {
+                  const sub = (appState.submissions || []).find(s => s.assignmentId === a.id && s.studentId === user.id);
+                  return `
+                    <div class="p-4 rounded-2xl border border-slate-200 dark:border-slate-700 space-y-3">
+                      <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div class="font-bold text-sm">${escapeHtml(a.title)}</div>
+                        ${a.deadline ? `<span class="text-xs font-extrabold text-amber-600">Hạn nộp: ${escapeHtml(a.deadline)}</span>` : ""}
+                      </div>
+                      <p class="text-xs text-slate-600 dark:text-slate-300 whitespace-pre-line">${escapeHtml(a.description || "")}</p>
+                      ${sub ? `
+                        <div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs">
+                          <div class="font-bold text-emerald-700 dark:text-emerald-300">Đã nộp bài (${escapeHtml(sub.submittedAt || "")})</div>
+                          ${sub.grade ? `<div class="mt-1 font-extrabold">Điểm giáo viên chấm: ${escapeHtml(sub.grade)} ${sub.feedback ? `— ${escapeHtml(sub.feedback)}` : ""}</div>` : `<div class="mt-1 text-slate-500">Đang chờ giáo viên chấm điểm...</div>`}
+                        </div>
+                      ` : `
+                        <div class="space-y-2">
+                          <textarea id="sub-text-${a.id}" rows="3" placeholder="Nhập nội dung bài làm của bạn..." class="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs"></textarea>
+                          <button onclick="submitStudentHomework('${a.id}')" class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold">Nộp Bài Cho Giáo Viên</button>
+                        </div>
+                      `}
                     </div>
-                    <p class="text-xs text-slate-600 dark:text-slate-300 whitespace-pre-line">${escapeHtml(a.description || "")}</p>
-                  </div>
-                `).join("")}</div>`
+                  `;
+                }).join("")}</div>`
             }
           </div>
         `;
@@ -2259,6 +2337,31 @@ ${studentResponseText}
         `;
         return;
       }
+    }
+
+    function submitStudentHomework(assignmentId) {
+      const user = appState.currentUser;
+      if (!user || user.role !== "student") return;
+      const box = document.getElementById(`sub-text-${assignmentId}`);
+      const content = (box?.value || "").trim();
+      if (!content) {
+        openAlertModal("Chưa nhập nội dung", "Vui lòng nhập bài làm trước khi gửi.");
+        return;
+      }
+      appState.submissions.push({
+        id: `sub_${Date.now()}`,
+        assignmentId,
+        studentId: user.id,
+        studentName: user.name || user.email,
+        content,
+        grade: "",
+        feedback: "",
+        submittedAt: new Date().toLocaleString("vi-VN"),
+        _updatedAt: Date.now()
+      });
+      addXp(35);
+      saveState({ silent: false });
+      renderCurrentView();
     }
 
     function submitObjectiveExam(skill, examId) {
@@ -2314,38 +2417,104 @@ ${studentResponseText}
           <div class="space-y-6">
             <div class="glass-panel rounded-3xl p-6 space-y-4">
               <h2 class="font-display font-extrabold text-xl">Trung Tâm Điều Hành Manager</h2>
-              <p class="text-xs sm:text-sm text-slate-500">Quản lý lớp học, phân công giáo viên, tạo tài khoản học sinh/giáo viên (khởi tạo 0 điểm) và đồng bộ đa thiết bị.</p>
+              <p class="text-xs sm:text-sm text-slate-500">Quản lý số lượng lớp học, xếp lịch, phân công/luân chuyển giáo viên, quản lý tài khoản & thông tin liên lạc giáo viên — học sinh.</p>
               <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div class="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20">
-                  <div class="text-xs font-bold text-slate-500">Số lớp học</div>
+                  <div class="text-xs font-bold text-slate-500">Tổng số lớp học</div>
                   <div class="text-2xl font-display font-extrabold text-indigo-600 mt-1">${(appState.classes || []).length}</div>
                 </div>
                 <div class="p-4 rounded-2xl bg-violet-500/10 border border-violet-500/20">
-                  <div class="text-xs font-bold text-slate-500">Giáo viên</div>
+                  <div class="text-xs font-bold text-slate-500">Tài khoản Giáo viên</div>
                   <div class="text-2xl font-display font-extrabold text-violet-600 mt-1">${(appState.teachers || []).length}</div>
                 </div>
                 <div class="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
-                  <div class="text-xs font-bold text-slate-500">Học sinh</div>
+                  <div class="text-xs font-bold text-slate-500">Tài khoản Học sinh</div>
                   <div class="text-2xl font-display font-extrabold text-emerald-600 mt-1">${(appState.students || []).length}</div>
                 </div>
               </div>
             </div>
 
+            <!-- Class & Schedule Management -->
             <div class="glass-panel rounded-3xl p-6 space-y-4">
-              <h3 class="font-display font-extrabold text-base">Tạo Lớp Học Mới</h3>
-              <form onsubmit="createClassFromManager(event)" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <h3 class="font-display font-extrabold text-base">Mở Lớp Học, Xếp Lịch & Phân Công Giáo Viên</h3>
+              <form onsubmit="createClassFromManager(event)" class="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <input id="mgr-class-name" type="text" required placeholder="Tên lớp (VD: PET B1 - K01)" class="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
                 <input id="mgr-class-schedule" type="text" placeholder="Lịch học (VD: T2 - T4 - T6 18h)" class="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
-                <button type="submit" class="px-4 py-2.5 rounded-2xl bg-indigo-600 text-white font-bold text-sm">Tạo Lớp</button>
+                <select id="mgr-class-teacher" class="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm">
+                  <option value="">-- Chọn giáo viên phụ trách --</option>
+                  ${(appState.teachers || []).map(t => `<option value="${t.id}">${escapeHtml(t.name)} (${escapeHtml(t.email)})</option>`).join("")}
+                </select>
+                <button type="submit" class="px-4 py-2.5 rounded-2xl bg-indigo-600 text-white font-bold text-sm">Tạo Lớp & Xếp Lịch</button>
               </form>
+
+              ${(appState.classes || []).length > 0 ? `
+                <div class="space-y-2.5 pt-2">
+                  ${appState.classes.map(c => `
+                    <div class="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+                      <div>
+                        <div class="font-extrabold text-sm">${escapeHtml(c.name)}</div>
+                        <div class="text-slate-500">Lịch học: ${escapeHtml(c.schedule || "Chưa xếp lịch")}</div>
+                      </div>
+                      <div class="flex items-center gap-2">
+                        <select onchange="assignTeacherToClass('${c.id}', this.value)" class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs">
+                          <option value="">Chưa phân công GV</option>
+                          ${(appState.teachers || []).map(t => `<option value="${t.id}" ${c.teacherId === t.id ? "selected" : ""}>GV: ${escapeHtml(t.name)}</option>`).join("")}
+                        </select>
+                        <button onclick="deleteClassById('${c.id}')" class="px-2.5 py-1.5 rounded-xl bg-rose-500/10 text-rose-600 font-bold">Xóa</button>
+                      </div>
+                    </div>
+                  `).join("")}
+                </div>
+              ` : ""}
             </div>
 
+            <!-- Teacher Accounts Management -->
             <div class="glass-panel rounded-3xl p-6 space-y-4">
-              <h3 class="font-display font-extrabold text-base">Đăng Ký Tài Khoản Học Sinh Mới (Khởi tạo 0 điểm)</h3>
-              <form onsubmit="createStudentAccountFromStaff(event)" class="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <input id="staff-new-stu-name" type="text" required placeholder="Họ tên học sinh" class="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
-                <input id="staff-new-stu-email" type="email" required placeholder="Email học sinh" class="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
-                <input id="staff-new-stu-pass" type="text" required placeholder="Mật khẩu cấp" class="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+              <h3 class="font-display font-extrabold text-base">Quản Lý Tài Khoản Giáo Viên</h3>
+              <form onsubmit="createTeacherFromManager(event)" class="grid grid-cols-1 sm:grid-cols-5 gap-3">
+                <input id="mgr-t-name" type="text" required placeholder="Họ tên giáo viên" class="px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+                <input id="mgr-t-email" type="email" required placeholder="Email giáo viên" class="px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+                <input id="mgr-t-phone" type="text" placeholder="SĐT liên lạc" class="px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+                <input id="mgr-t-pass" type="text" required placeholder="Mật khẩu" class="px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+                <button type="submit" class="px-4 py-2.5 rounded-2xl bg-violet-600 text-white font-bold text-sm">Thêm Giáo Viên</button>
+              </form>
+
+              ${(appState.teachers || []).length > 0 ? `
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left text-xs">
+                    <thead>
+                      <tr class="border-b border-slate-200 dark:border-slate-800 text-slate-500">
+                        <th class="py-2 pr-3">Họ tên</th>
+                        <th class="py-2 pr-3">Email</th>
+                        <th class="py-2 pr-3">SĐT</th>
+                        <th class="py-2 pr-3">Mật khẩu</th>
+                        <th class="py-2">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${appState.teachers.map(t => `
+                        <tr class="border-b border-slate-100 dark:border-slate-800/70">
+                          <td class="py-2 pr-3 font-bold">${escapeHtml(t.name)}</td>
+                          <td class="py-2 pr-3">${escapeHtml(t.email)}</td>
+                          <td class="py-2 pr-3">${escapeHtml(t.phone || "—")}</td>
+                          <td class="py-2 pr-3 font-mono">${escapeHtml(t.password)}</td>
+                          <td class="py-2"><button onclick="deleteTeacherById('${t.id}')" class="text-rose-600 font-bold">Xóa</button></td>
+                        </tr>
+                      `).join("")}
+                    </tbody>
+                  </table>
+                </div>
+              ` : ""}
+            </div>
+
+            <!-- Student Account Registration & Class Transfer -->
+            <div class="glass-panel rounded-3xl p-6 space-y-4">
+              <h3 class="font-display font-extrabold text-base">Đăng Ký & Luân Chuyển Học Sinh (Khởi tạo 0 điểm)</h3>
+              <form onsubmit="createStudentAccountFromStaff(event)" class="grid grid-cols-1 sm:grid-cols-5 gap-3">
+                <input id="staff-new-stu-name" type="text" required placeholder="Họ tên học sinh" class="px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+                <input id="staff-new-stu-email" type="email" required placeholder="Email học sinh" class="px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+                <input id="staff-new-stu-phone" type="text" placeholder="SĐT liên lạc" class="px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+                <input id="staff-new-stu-pass" type="text" required placeholder="Mật khẩu cấp" class="px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
                 <button type="submit" class="px-4 py-2.5 rounded-2xl bg-emerald-600 text-white font-bold text-sm">Cấp Tài Khoản</button>
               </form>
             </div>
@@ -2416,9 +2585,7 @@ ${studentResponseText}
                 const items = appState.exams?.[sk] || [];
                 return `
                   <div class="glass-panel rounded-3xl p-5 space-y-3">
-                    <div class="flex items-center justify-between">
-                      <h3 class="font-display font-extrabold text-sm uppercase">Kho đề ${sk} (${items.length})</h3>
-                    </div>
+                    <h3 class="font-display font-extrabold text-sm uppercase">Kho đề ${sk} (${items.length})</h3>
                     ${items.length === 0
                       ? `<p class="text-xs text-slate-400">Chưa có đề ${sk} nào.</p>`
                       : items.map(it => `
@@ -2438,14 +2605,19 @@ ${studentResponseText}
       }
 
       if (tab === "teacher-grading") {
+        const subs = appState.submissions || [];
         container.innerHTML = `
           <div class="space-y-6">
             <div class="glass-panel rounded-3xl p-6 space-y-4">
               <h2 class="font-display font-extrabold text-xl">Giao Bài Tập Về Nhà & Deadline</h2>
               <form onsubmit="createAssignmentFromStaff(event)" class="space-y-3">
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <input id="assign-title" type="text" required placeholder="Tên bài tập (VD: Writing Email Unit 3)" class="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
                   <input id="assign-deadline" type="text" required placeholder="Hạn chót (VD: 20:00 Thứ 6)" class="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+                  <select id="assign-class-id" class="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm">
+                    <option value="">Tất cả lớp</option>
+                    ${(appState.classes || []).map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")}
+                  </select>
                 </div>
                 <textarea id="assign-desc" rows="3" required placeholder="Yêu cầu chi tiết cho học sinh..." class="w-full px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"></textarea>
                 <button type="submit" class="px-5 py-3 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs sm:text-sm">
@@ -2453,58 +2625,106 @@ ${studentResponseText}
                 </button>
               </form>
             </div>
+
+            <div class="glass-panel rounded-3xl p-6 space-y-4">
+              <h3 class="font-display font-extrabold text-base">Bài Học Sinh Đã Nộp (${subs.length})</h3>
+              ${subs.length === 0
+                ? `<p class="text-xs text-slate-400">Chưa có bài nộp nào từ học sinh.</p>`
+                : `<div class="space-y-3">${subs.map(s => `
+                    <div class="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2 text-xs">
+                      <div class="font-extrabold">${escapeHtml(s.studentName)} • <span class="text-slate-400 font-normal">${escapeHtml(s.submittedAt)}</span></div>
+                      <p class="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 whitespace-pre-line">${escapeHtml(s.content)}</p>
+                      <div class="flex flex-wrap items-center gap-2">
+                        <input id="grade-val-${s.id}" type="text" value="${escapeHtml(s.grade || "")}" placeholder="Điểm (VD: 155/170)" class="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" />
+                        <input id="grade-fb-${s.id}" type="text" value="${escapeHtml(s.feedback || "")}" placeholder="Nhận xét của giáo viên" class="flex-1 min-w-[180px] px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" />
+                        <button onclick="gradeStudentSubmission('${s.id}')" class="px-3.5 py-1.5 rounded-xl bg-emerald-600 text-white font-bold">Lưu Điểm</button>
+                      </div>
+                    </div>
+                  `).join("")}</div>`
+              }
+            </div>
           </div>
         `;
         return;
       }
 
       if (tab === "teacher-materials") {
+        const courses = appState.courses || [];
         container.innerHTML = `
           <div class="glass-panel rounded-3xl p-6 space-y-4">
-            <h2 class="font-display font-extrabold text-xl">Đăng Tài Liệu & Khóa Học PET</h2>
+            <h2 class="font-display font-extrabold text-xl">Đăng Tài Liệu & Khóa Học PET (${courses.length})</h2>
             <form onsubmit="createCourseMaterialFromStaff(event)" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <input id="course-title" type="text" required placeholder="Tên tài liệu / khóa học" class="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
               <input id="course-link" type="url" placeholder="Link tài liệu / video (nếu có)" class="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
               <button type="submit" class="px-4 py-2.5 rounded-2xl bg-indigo-600 text-white font-bold text-sm">Đăng Tài Liệu</button>
             </form>
+            ${courses.length > 0 ? `
+              <div class="space-y-2">${courses.map(c => `
+                <div class="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs">
+                  <span class="font-bold">${escapeHtml(c.title)}</span>
+                  <button onclick="deleteCourseById('${c.id}')" class="text-rose-600 font-bold">Xóa</button>
+                </div>
+              `).join("")}</div>
+            ` : ""}
           </div>
         `;
         return;
       }
 
       if (tab === "teacher-rewards") {
+        const rewards = appState.rewards || [];
+        const claims = appState.rewardClaims || [];
         container.innerHTML = `
-          <div class="glass-panel rounded-3xl p-6 space-y-4">
-            <h2 class="font-display font-extrabold text-xl">Tạo Phần Quà Đổi XP Cho Học Sinh</h2>
-            <form onsubmit="createRewardItemFromStaff(event)" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <input id="reward-title" type="text" required placeholder="Tên phần quà (VD: Sticker Cambridge)" class="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
-              <input id="reward-cost" type="number" min="10" required placeholder="Số XP cần đổi (VD: 200)" class="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
-              <button type="submit" class="px-4 py-2.5 rounded-2xl bg-emerald-600 text-white font-bold text-sm">Thêm Quà</button>
-            </form>
+          <div class="space-y-6">
+            <div class="glass-panel rounded-3xl p-6 space-y-4">
+              <h2 class="font-display font-extrabold text-xl">Tạo Phần Quà Đổi XP Cho Học Sinh (${rewards.length})</h2>
+              <form onsubmit="createRewardItemFromStaff(event)" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <input id="reward-title" type="text" required placeholder="Tên phần quà (VD: Sticker Cambridge)" class="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+                <input id="reward-cost" type="number" min="10" required placeholder="Số XP cần đổi (VD: 200)" class="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+                <button type="submit" class="px-4 py-2.5 rounded-2xl bg-emerald-600 text-white font-bold text-sm">Thêm Quà</button>
+              </form>
+            </div>
+            ${claims.length > 0 ? `
+              <div class="glass-panel rounded-3xl p-6 space-y-3">
+                <h3 class="font-display font-extrabold text-base">Lịch Sử Học Sinh Đổi Quà (${claims.length})</h3>
+                ${claims.map(cl => `
+                  <div class="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs flex justify-between">
+                    <span><strong>${escapeHtml(cl.studentName)}</strong> đã đổi <strong>${escapeHtml(cl.rewardTitle)}</strong> (-${cl.cost} XP)</span>
+                    <span class="text-slate-400">${escapeHtml(cl.createdAt)}</span>
+                  </div>
+                `).join("")}
+              </div>
+            ` : ""}
           </div>
         `;
         return;
       }
 
-      // Default: teacher-dashboard (Sổ điểm & Tạo tài khoản học sinh)
+      // Default: teacher-dashboard (Bảng điểm, cấp tài khoản, luân chuyển lớp, xuất Excel CSV)
       container.innerHTML = `
         <div class="space-y-6">
           <div class="glass-panel rounded-3xl p-6 space-y-4">
             <h3 class="font-display font-extrabold text-base">Đăng Ký Tài Khoản Học Sinh Mới (Khởi tạo 0 điểm)</h3>
-            <form onsubmit="createStudentAccountFromStaff(event)" class="grid grid-cols-1 sm:grid-cols-4 gap-3">
-              <input id="staff-new-stu-name" type="text" required placeholder="Họ tên học sinh" class="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
-              <input id="staff-new-stu-email" type="email" required placeholder="Email học sinh" class="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
-              <input id="staff-new-stu-pass" type="text" required placeholder="Mật khẩu cấp" class="px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+            <form onsubmit="createStudentAccountFromStaff(event)" class="grid grid-cols-1 sm:grid-cols-5 gap-3">
+              <input id="staff-new-stu-name" type="text" required placeholder="Họ tên học sinh" class="px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+              <input id="staff-new-stu-email" type="email" required placeholder="Email học sinh" class="px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+              <input id="staff-new-stu-phone" type="text" placeholder="SĐT liên lạc" class="px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+              <input id="staff-new-stu-pass" type="text" required placeholder="Mật khẩu cấp" class="px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
               <button type="submit" class="px-4 py-2.5 rounded-2xl bg-emerald-600 text-white font-bold text-sm">Cấp Tài Khoản</button>
             </form>
           </div>
 
           <div class="glass-panel rounded-3xl p-6 space-y-4">
             <div class="flex flex-wrap items-center justify-between gap-2">
-              <h2 class="font-display font-extrabold text-xl">Sổ Điểm Học Sinh (${(appState.students || []).length})</h2>
-              <button onclick="resetAllStudentsScoresToZero()" class="px-3.5 py-2 rounded-xl bg-rose-500/10 text-rose-600 text-xs font-bold hover:bg-rose-500/20 transition">
-                Reset Toàn Bộ Điểm Về 0
-              </button>
+              <h2 class="font-display font-extrabold text-xl">Sổ Điểm & Quản Lý Học Sinh (${(appState.students || []).length})</h2>
+              <div class="flex flex-wrap gap-2">
+                <button onclick="exportStudentsExcelCsv()" class="px-3.5 py-2 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xs font-bold hover:bg-indigo-500/20 transition">
+                  Xuất Excel (.csv)
+                </button>
+                <button onclick="resetAllStudentsScoresToZero()" class="px-3.5 py-2 rounded-xl bg-rose-500/10 text-rose-600 text-xs font-bold hover:bg-rose-500/20 transition">
+                  Reset Toàn Bộ Điểm Về 0
+                </button>
+              </div>
             </div>
 
             ${(appState.students || []).length > 0 ? `
@@ -2512,8 +2732,9 @@ ${studentResponseText}
                 <table class="w-full text-left text-xs sm:text-sm">
                   <thead>
                     <tr class="border-b border-slate-200 dark:border-slate-800 text-slate-500">
-                      <th class="py-2.5 pr-4">Họ tên</th>
-                      <th class="py-2.5 pr-4">Email</th>
+                      <th class="py-2.5 pr-3">Họ tên</th>
+                      <th class="py-2.5 pr-3">Email / Mật khẩu</th>
+                      <th class="py-2.5 pr-3">Lớp</th>
                       <th class="py-2.5 pr-3">R / L / W / S</th>
                       <th class="py-2.5 pr-3">XP</th>
                       <th class="py-2.5 pr-3">Điểm TB</th>
@@ -2523,13 +2744,20 @@ ${studentResponseText}
                   <tbody>
                     ${appState.students.map(s => `
                       <tr class="border-b border-slate-100 dark:border-slate-800/70">
-                        <td class="py-2.5 pr-4 font-bold">${escapeHtml(s.name || "")}</td>
-                        <td class="py-2.5 pr-4 text-slate-500">${escapeHtml(s.email || "")}</td>
+                        <td class="py-2.5 pr-3 font-bold">${escapeHtml(s.name || "")}<div class="text-[11px] font-normal text-slate-400">${escapeHtml(s.phone || "")}</div></td>
+                        <td class="py-2.5 pr-3 text-slate-500 text-xs">${escapeHtml(s.email || "")}<div class="font-mono text-[11px]">MK: ${escapeHtml(s.password || "")}</div></td>
+                        <td class="py-2.5 pr-3">
+                          <select onchange="transferStudentClass('${s.id}', this.value)" class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs">
+                            <option value="">Chưa xếp lớp</option>
+                            ${(appState.classes || []).map(c => `<option value="${c.id}" ${s.classId === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}
+                          </select>
+                        </td>
                         <td class="py-2.5 pr-3 font-mono text-xs">${Number(s.readingScore)||0} / ${Number(s.listeningScore)||0} / ${Number(s.writingScore)||0} / ${Number(s.speakingScore)||0}</td>
                         <td class="py-2.5 pr-3">${Number(s.xp) || 0}</td>
                         <td class="py-2.5 pr-3 font-bold text-indigo-600">${calcOverallScore(s)}</td>
-                        <td class="py-2.5">
-                          <button onclick="resetSingleStudentToZero('${s.id}')" class="text-xs font-bold text-rose-600 hover:underline">Reset 0</button>
+                        <td class="py-2.5 space-x-2">
+                          <button onclick="resetSingleStudentToZero('${s.id}')" class="text-xs font-bold text-amber-600 hover:underline">Reset 0</button>
+                          <button onclick="deleteStudentById('${s.id}')" class="text-xs font-bold text-rose-600 hover:underline">Xóa</button>
                         </td>
                       </tr>
                     `).join("")}
@@ -2542,7 +2770,7 @@ ${studentResponseText}
       `;
     }
 
-    // ==================== STAFF ACTION HANDLERS ====================
+    // ==================== STAFF & MANAGER ACTION HANDLERS ====================
     function toggleExamFormFields() {
       const skill = document.getElementById("exam-create-skill")?.value || "reading";
       const audioGrp = document.getElementById("exam-audio-group");
@@ -2591,6 +2819,7 @@ ${studentResponseText}
       event.preventDefault();
       const title = (document.getElementById("assign-title")?.value || "").trim();
       const deadline = (document.getElementById("assign-deadline")?.value || "").trim();
+      const classId = (document.getElementById("assign-class-id")?.value || "").trim();
       const description = (document.getElementById("assign-desc")?.value || "").trim();
       if (!title || !deadline) return;
 
@@ -2599,6 +2828,7 @@ ${studentResponseText}
         id: `asg_${now}`,
         title,
         deadline,
+        classId: classId || null,
         description,
         _updatedAt: now
       });
@@ -2608,12 +2838,25 @@ ${studentResponseText}
         title: `Bài tập mới: ${title}`,
         message: description,
         deadline,
+        targetClassId: classId || null,
         isDeadline: true,
         _updatedAt: now
       });
 
       saveState({ silent: false });
       showToast(`Đã giao bài "${title}" (Hạn nộp: ${deadline})`, "warning", { hasDeadline: true });
+      renderCurrentView();
+    }
+
+    function gradeStudentSubmission(subId) {
+      const idx = (appState.submissions || []).findIndex(s => s.id === subId);
+      if (idx === -1) return;
+      const gradeVal = (document.getElementById(`grade-val-${subId}`)?.value || "").trim();
+      const fbVal = (document.getElementById(`grade-fb-${subId}`)?.value || "").trim();
+      appState.submissions[idx].grade = gradeVal;
+      appState.submissions[idx].feedback = fbVal;
+      appState.submissions[idx]._updatedAt = Date.now();
+      saveState({ silent: false });
       renderCurrentView();
     }
 
@@ -2628,6 +2871,12 @@ ${studentResponseText}
         link,
         _updatedAt: Date.now()
       });
+      saveState({ silent: false });
+      renderCurrentView();
+    }
+
+    function deleteCourseById(courseId) {
+      appState.courses = (appState.courses || []).filter(c => c.id !== courseId);
       saveState({ silent: false });
       renderCurrentView();
     }
@@ -2651,15 +2900,17 @@ ${studentResponseText}
       event.preventDefault();
       const nameInput = document.getElementById("mgr-class-name");
       const schedInput = document.getElementById("mgr-class-schedule");
+      const teacherSel = document.getElementById("mgr-class-teacher");
       const nameVal = (nameInput?.value || "").trim();
       const schedVal = (schedInput?.value || "").trim();
+      const teacherId = (teacherSel?.value || "").trim() || null;
       if (!nameVal) return;
 
       appState.classes.push({
         id: `cls_${Date.now()}`,
         name: nameVal,
         schedule: schedVal,
-        teacherId: null,
+        teacherId,
         _updatedAt: Date.now()
       });
       if (nameInput) nameInput.value = "";
@@ -2668,14 +2919,60 @@ ${studentResponseText}
       renderCurrentView();
     }
 
+    function assignTeacherToClass(classId, teacherId) {
+      const idx = (appState.classes || []).findIndex(c => c.id === classId);
+      if (idx === -1) return;
+      appState.classes[idx].teacherId = teacherId || null;
+      appState.classes[idx]._updatedAt = Date.now();
+      saveState({ silent: false });
+    }
+
+    function deleteClassById(classId) {
+      appState.classes = (appState.classes || []).filter(c => c.id !== classId);
+      saveState({ silent: false });
+      renderCurrentView();
+    }
+
+    function createTeacherFromManager(event) {
+      event.preventDefault();
+      const nameEl = document.getElementById("mgr-t-name");
+      const emailEl = document.getElementById("mgr-t-email");
+      const phoneEl = document.getElementById("mgr-t-phone");
+      const passEl = document.getElementById("mgr-t-pass");
+      const nameVal = (nameEl?.value || "").trim();
+      const emailVal = (emailEl?.value || "").trim();
+      const phoneVal = (phoneEl?.value || "").trim();
+      const passVal = (passEl?.value || "").trim();
+      if (!nameVal || !emailVal || !passVal) return;
+
+      appState.teachers.push({
+        id: `teacher_${Date.now()}`,
+        name: nameVal,
+        email: emailVal,
+        phone: phoneVal,
+        password: passVal,
+        _updatedAt: Date.now()
+      });
+      saveState({ silent: false });
+      renderCurrentView();
+    }
+
+    function deleteTeacherById(teacherId) {
+      appState.teachers = (appState.teachers || []).filter(t => t.id !== teacherId);
+      saveState({ silent: false });
+      renderCurrentView();
+    }
+
     function createStudentAccountFromStaff(event) {
       event.preventDefault();
       const nameEl = document.getElementById("staff-new-stu-name");
       const emailEl = document.getElementById("staff-new-stu-email");
+      const phoneEl = document.getElementById("staff-new-stu-phone");
       const passEl = document.getElementById("staff-new-stu-pass");
 
       const nameVal = (nameEl?.value || "").trim();
       const emailVal = (emailEl?.value || "").trim();
+      const phoneVal = (phoneEl?.value || "").trim();
       const passVal = (passEl?.value || "").trim();
       if (!nameVal || !emailVal || !passVal) return;
 
@@ -2690,7 +2987,7 @@ ${studentResponseText}
         name: nameVal,
         email: emailVal,
         password: passVal,
-        phone: "",
+        phone: phoneVal,
         classId: appState.classes?.[0]?.id || null,
         skin: SKIN_CATALOG[0].id,
         bot: BOT_CATALOG[0].id,
@@ -2706,7 +3003,22 @@ ${studentResponseText}
 
       if (nameEl) nameEl.value = "";
       if (emailEl) emailEl.value = "";
+      if (phoneEl) phoneEl.value = "";
       if (passEl) passEl.value = "";
+      saveState({ silent: false });
+      renderCurrentView();
+    }
+
+    function transferStudentClass(studentId, classId) {
+      const idx = (appState.students || []).findIndex(s => s.id === studentId);
+      if (idx === -1) return;
+      appState.students[idx].classId = classId || null;
+      appState.students[idx]._updatedAt = Date.now();
+      saveState({ silent: false });
+    }
+
+    function deleteStudentById(studentId) {
+      appState.students = (appState.students || []).filter(s => s.id !== studentId);
       saveState({ silent: false });
       renderCurrentView();
     }
@@ -2741,6 +3053,33 @@ ${studentResponseText}
       }));
       saveState({ silent: false });
       renderCurrentView();
+    }
+
+    function exportStudentsExcelCsv() {
+      const rows = [
+        ["Ho Ten", "Email", "So Dien Thoai", "Reading", "Listening", "Writing", "Speaking", "Diem TB", "XP"]
+      ];
+      (appState.students || []).forEach(s => {
+        rows.push([
+          s.name || "",
+          s.email || "",
+          s.phone || "",
+          Number(s.readingScore) || 0,
+          Number(s.listeningScore) || 0,
+          Number(s.writingScore) || 0,
+          Number(s.speakingScore) || 0,
+          calcOverallScore(s),
+          Number(s.xp) || 0
+        ]);
+      });
+      const csvContent = "\uFEFF" + rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `so-diem-pet-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
     }
 
     // ==================== INITIALIZATION ====================
