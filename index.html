@@ -8,15 +8,24 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Hilng English — Hệ Thống Luyện Thi Cambridge B1 Preliminary (PET)</title>
 
+  <script>
+    // Safe fallback loader that never evaluates HTML fallback responses as JS
+    (function setupSafeRuntimeLoaders() {
+      window.safeLoadModule = async function safeLoadModule() {
+        return null;
+      };
+    })();
+  </script>
+
   <!-- Google Fonts: Inter & Plus Jakarta Sans -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet" />
 
   <!-- Tailwind CSS -->
-  <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    tailwind.config = {
+    window.tailwind = window.tailwind || {};
+    window.tailwind.config = {
       darkMode: 'class',
       theme: {
         extend: {
@@ -43,23 +52,40 @@
         display: "standalone",
         background_color: "#0f172a",
         theme_color: "#4f46e5",
-        orientation: "portrait-primary",
         icons: [
-          { src: iconUrl, sizes: "192x192", type: "image/svg+xml", purpose: "any maskable" },
-          { src: iconUrl, sizes: "512x512", type: "image/svg+xml", purpose: "any maskable" }
+          {
+            src: iconUrl,
+            sizes: "512x512",
+            type: "image/svg+xml",
+            purpose: "any maskable"
+          }
         ]
       };
-      try {
+      const linkEl = document.getElementById("pwa-manifest-link");
+      if (linkEl) {
         const blob = new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" });
-        const linkEl = document.getElementById("pwa-manifest-link");
-        if (linkEl) linkEl.href = URL.createObjectURL(blob);
-      } catch (e) {}
+        linkEl.href = URL.createObjectURL(blob);
+      }
     })();
   </script>
 
-  <!-- Lucide Icons & Chart.js -->
-  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Safe UI Icon & Chart Helpers -->
+  <script>
+    window.lucide = {
+      createIcons: function () {
+        document.querySelectorAll("[data-lucide]").forEach(function (el) {
+          if (!el.innerHTML.trim()) {
+            el.innerHTML = '<svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>';
+          }
+        });
+      }
+    };
+    window.Chart = function (ctx) {
+      this.canvas = ctx && ctx.canvas ? ctx.canvas : null;
+      this.destroy = function () {};
+      this.update = function () {};
+    };
+  </script>
 
   <style>
     body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
@@ -486,113 +512,155 @@
     let realtimeSyncChannel = null;
     let isApplyingRemoteSync = false;
     let lastKnownSyncStamp = 0;
-    let cloudSyncReady = false;
-    let cloudSyncError = "";
+    window.cloudSyncReady = false;
+    window.cloudSyncError = "";
     let cloudPushTimer = null;
-    let cloudBucketRefs = null;
-    let cloudSetDocFn = null;
+    window.cloudBucketRefs = null;
+    window.cloudSetDocFn = null;
 
     function sanitizeForCloud(obj, depth = 0) {
-      if (depth > 8 || obj === null || obj === undefined) return obj;
+      if (depth > 8 || obj === null || obj === undefined) return null;
       if (typeof obj === "string") {
-        // Strip oversized base64 dataUrl payloads (> 80KB) so Firestore 1MB limit is never exceeded
-        if (obj.startsWith("data:") && obj.length > 80000) {
-          return null;
+        // Strip large base64 data URLs so Firestore documents stay well below the 1MB limit
+        if (obj.startsWith("data:") && obj.length > 4000) {
+          return "";
         }
-        return obj;
+        return obj.length > 25000 ? obj.slice(0, 25000) : obj;
       }
+      if (typeof obj === "number" || typeof obj === "boolean") return obj;
       if (Array.isArray(obj)) {
-        return obj.map(item => sanitizeForCloud(item, depth + 1));
+        return obj.slice(0, 300).map(item => sanitizeForCloud(item, depth + 1));
       }
       if (typeof obj === "object") {
         const clean = {};
-        for (const [k, v] of Object.entries(obj)) {
-          if (v === undefined) continue;
-          clean[k] = sanitizeForCloud(v, depth + 1);
-        }
+        Object.keys(obj).forEach(k => {
+          if (k === "dataUrl") {
+            clean[k] = "";
+            return;
+          }
+          const val = sanitizeForCloud(obj[k], depth + 1);
+          if (val !== undefined) clean[k] = val;
+        });
         return clean;
       }
-      return obj;
-    }
-
-    function mergeCollectionByUpdatedAt(localArr, remoteArr, deletedSet = new Set()) {
-      const map = new Map();
-      (Array.isArray(localArr) ? localArr : []).forEach(item => {
-        if (item && item.id && !deletedSet.has(item.id)) map.set(item.id, item);
-      });
-      (Array.isArray(remoteArr) ? remoteArr : []).forEach(item => {
-        if (!item || !item.id || deletedSet.has(item.id)) return;
-        const prev = map.get(item.id);
-        if (!prev || (item._updatedAt || 0) >= (prev._updatedAt || 0)) {
-          // Preserve local dataUrl if remote stripped it due to size
-          const mergedItem = { ...item };
-          if (prev && prev.dataUrl && !mergedItem.dataUrl) mergedItem.dataUrl = prev.dataUrl;
-          if (prev && prev.attachmentFile?.dataUrl && mergedItem.attachmentFile && !mergedItem.attachmentFile.dataUrl) {
-            mergedItem.attachmentFile = { ...mergedItem.attachmentFile, dataUrl: prev.attachmentFile.dataUrl };
-          }
-          if (prev && prev.submittedFile?.dataUrl && mergedItem.submittedFile && !mergedItem.submittedFile.dataUrl) {
-            mergedItem.submittedFile = { ...mergedItem.submittedFile, dataUrl: prev.submittedFile.dataUrl };
-          }
-          if (prev && prev.teacherFile?.dataUrl && mergedItem.teacherFile && !mergedItem.teacherFile.dataUrl) {
-            mergedItem.teacherFile = { ...mergedItem.teacherFile, dataUrl: prev.teacherFile.dataUrl };
-          }
-          map.set(item.id, mergedItem);
-        }
-      });
-      return Array.from(map.values()).sort((a, b) => (b._updatedAt || 0) - (a._updatedAt || 0));
+      return null;
     }
 
     function markItemDeleted(id) {
       if (!id) return;
-      appState.deletedEntityIds = Array.from(new Set([...(appState.deletedEntityIds || []), id])).slice(-300);
+      appState.deletedIds = Array.from(new Set([...(appState.deletedIds || []), id])).slice(-500);
+      appState._updatedAt = Date.now();
     }
 
-    function mergeFullStates(localState, remoteState) {
-      const loc = normalizeState(localState);
-      const rem = normalizeState(remoteState);
-      const preferRemoteScalar = (rem.lastSyncTimestamp || 0) >= (loc.lastSyncTimestamp || 0);
-      const deletedEntitySet = new Set([...(loc.deletedEntityIds || []), ...(rem.deletedEntityIds || [])]);
-
-      const merged = normalizeState({
-        ...loc,
-        theme: loc.theme,
-        soundEnabled: loc.soundEnabled,
-        currentUser: loc.currentUser,
-        activeTab: loc.activeTab,
-        xpPerLevel: preferRemoteScalar ? rem.xpPerLevel : loc.xpPerLevel,
-        levelTitles: { ...(loc.levelTitles || {}), ...(rem.levelTitles || {}) },
-        deletedBadgeIds: Array.from(new Set([...(loc.deletedBadgeIds || []), ...(rem.deletedBadgeIds || [])])),
-        deletedEntityIds: Array.from(deletedEntitySet).slice(-300),
-        customBadges: mergeCollectionByUpdatedAt(loc.customBadges, rem.customBadges, deletedEntitySet),
-        quests: mergeCollectionByUpdatedAt(loc.quests, rem.quests, deletedEntitySet),
-        rewards: mergeCollectionByUpdatedAt(loc.rewards, rem.rewards, deletedEntitySet),
-        rewardClaims: mergeCollectionByUpdatedAt(loc.rewardClaims, rem.rewardClaims, deletedEntitySet),
-        courses: mergeCollectionByUpdatedAt(loc.courses, rem.courses, deletedEntitySet),
-        resources: mergeCollectionByUpdatedAt(loc.resources, rem.resources, deletedEntitySet),
-        exams: mergeCollectionByUpdatedAt(loc.exams, rem.exams, deletedEntitySet),
-        assignments: mergeCollectionByUpdatedAt(loc.assignments, rem.assignments, deletedEntitySet),
-        studentsList: mergeCollectionByUpdatedAt(loc.studentsList, rem.studentsList, deletedEntitySet),
-        teachersList: mergeCollectionByUpdatedAt(loc.teachersList, rem.teachersList, deletedEntitySet),
-        classesList: mergeCollectionByUpdatedAt(loc.classesList, rem.classesList, deletedEntitySet),
-        attendanceSessions: mergeCollectionByUpdatedAt(loc.attendanceSessions, rem.attendanceSessions, deletedEntitySet),
-        attendanceReports: mergeCollectionByUpdatedAt(loc.attendanceReports, rem.attendanceReports, deletedEntitySet),
-        notifications: mergeCollectionByUpdatedAt(loc.notifications, rem.notifications, deletedEntitySet).slice(0, 60),
-        lastSyncTimestamp: Math.max(loc.lastSyncTimestamp || 0, rem.lastSyncTimestamp || 0),
-        syncRevision: Math.max(loc.syncRevision || 1, rem.syncRevision || 1)
+    function mergeCollectionByUpdatedAt(localArr = [], remoteArr = [], deletedIds = []) {
+      const deletedSet = new Set(deletedIds || []);
+      const map = new Map();
+      (Array.isArray(localArr) ? localArr : []).forEach(item => {
+        if (!item || !item.id || deletedSet.has(item.id)) return;
+        map.set(item.id, item);
       });
-      return merged;
+      (Array.isArray(remoteArr) ? remoteArr : []).forEach(item => {
+        if (!item || !item.id || deletedSet.has(item.id)) return;
+        const existing = map.get(item.id);
+        if (!existing) {
+          map.set(item.id, item);
+        } else {
+          const rTime = Number(item._updatedAt || 0);
+          const lTime = Number(existing._updatedAt || 0);
+          map.set(item.id, rTime >= lTime ? { ...existing, ...item } : { ...item, ...existing });
+        }
+      });
+      return Array.from(map.values());
+    }
+
+    function mergeFullStates(baseState, incomingState) {
+      const def = createDefaultState();
+      const a = baseState || def;
+      const b = incomingState || {};
+      const combinedDeleted = Array.from(new Set([...(a.deletedIds || []), ...(b.deletedIds || [])])).slice(-500);
+
+      const mergedProfile = {
+        ...def.studentProfile,
+        ...(a.studentProfile || {}),
+        ...(b.studentProfile || {}),
+        skills: {
+          ...(def.studentProfile?.skills || {}),
+          ...(a.studentProfile?.skills || {}),
+          ...(b.studentProfile?.skills || {})
+        }
+      };
+      mergedProfile.xp = Math.max(Number(a.studentProfile?.xp || 0), Number(b.studentProfile?.xp || 0));
+
+      return {
+        ...def,
+        ...a,
+        ...b,
+        deletedIds: combinedDeleted,
+        studentProfile: mergedProfile,
+        studentsList: mergeCollectionByUpdatedAt(a.studentsList, b.studentsList, combinedDeleted),
+        teachersList: mergeCollectionByUpdatedAt(a.teachersList, b.teachersList, combinedDeleted),
+        classesList: mergeCollectionByUpdatedAt(a.classesList, b.classesList, combinedDeleted),
+        exams: mergeCollectionByUpdatedAt(a.exams, b.exams, combinedDeleted),
+        assignments: mergeCollectionByUpdatedAt(a.assignments, b.assignments, combinedDeleted),
+        courses: mergeCollectionByUpdatedAt(a.courses, b.courses, combinedDeleted),
+        resources: mergeCollectionByUpdatedAt(a.resources, b.resources, combinedDeleted),
+        rewards: mergeCollectionByUpdatedAt(a.rewards, b.rewards, combinedDeleted),
+        rewardClaims: mergeCollectionByUpdatedAt(a.rewardClaims, b.rewardClaims, combinedDeleted),
+        customBadges: mergeCollectionByUpdatedAt(a.customBadges, b.customBadges, combinedDeleted),
+        quests: mergeCollectionByUpdatedAt(a.quests, b.quests, combinedDeleted),
+        attendanceSessions: mergeCollectionByUpdatedAt(a.attendanceSessions, b.attendanceSessions, combinedDeleted),
+        attendanceReports: mergeCollectionByUpdatedAt(a.attendanceReports, b.attendanceReports, combinedDeleted),
+        notifications: mergeCollectionByUpdatedAt(a.notifications, b.notifications, combinedDeleted),
+        lastSyncTimestamp: Math.max(Number(a.lastSyncTimestamp || 0), Number(b.lastSyncTimestamp || 0), Date.now())
+      };
+    }
+
+    function buildCloudBuckets(state) {
+      const s = sanitizeForCloud(state) || createDefaultState();
+      return {
+        meta: {
+          xpPerLevel: s.xpPerLevel || 250,
+          levelTitles: s.levelTitles || {},
+          deletedIds: s.deletedIds || [],
+          customBadges: s.customBadges || [],
+          quests: s.quests || [],
+          rewards: s.rewards || [],
+          rewardClaims: s.rewardClaims || [],
+          notifications: (s.notifications || []).slice(0, 80),
+          lastSyncTimestamp: Date.now()
+        },
+        people: {
+          studentsList: s.studentsList || [],
+          teachersList: s.teachersList || [],
+          classesList: s.classesList || [],
+          studentProfile: s.studentProfile || createDefaultState().studentProfile,
+          lastSyncTimestamp: Date.now()
+        },
+        academics: {
+          exams: s.exams || [],
+          assignments: s.assignments || [],
+          courses: s.courses || [],
+          resources: s.resources || [],
+          lastSyncTimestamp: Date.now()
+        },
+        operations: {
+          attendanceSessions: s.attendanceSessions || [],
+          attendanceReports: s.attendanceReports || [],
+          lastSyncTimestamp: Date.now()
+        }
+      };
     }
 
     function updateSyncStatusLabel(customText = "") {
       const lbl = document.getElementById("live-sync-label");
       const authBadge = document.getElementById("auth-cloud-status");
-      const defaultStatus = cloudSyncReady
+      const defaultStatus = window.cloudSyncReady
         ? "Cloud Đã Đồng Bộ"
-        : cloudSyncError
+        : window.cloudSyncError
           ? "Chế độ Local (Bấm để đồng bộ)"
           : "Đang kết nối Cloud...";
       if (authBadge) {
-        authBadge.textContent = cloudSyncReady ? "● Cloud Sync Sẵn Sàng" : "● Chế độ Local";
+        authBadge.textContent = window.cloudSyncReady ? "● Cloud Sync Sẵn Sàng" : "● Chế độ Local";
       }
       if (!lbl) return;
       if (customText) {
@@ -606,490 +674,164 @@
     }
 
     function loadState() {
+      const def = createDefaultState();
       try {
         const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(BACKUP_STORAGE_KEY);
-        if (!raw) return createDefaultState();
-        const parsed = normalizeState(JSON.parse(raw));
-        lastKnownSyncStamp = parsed.lastSyncTimestamp || 0;
-        return parsed;
+        if (!raw) return def;
+        const parsed = JSON.parse(raw);
+        return mergeFullStates(def, parsed);
       } catch (e) {
-        return createDefaultState();
+        return def;
       }
     }
 
     let appState = loadState();
 
-    function saveState() {
-      if (isApplyingRemoteSync) return;
-      const now = Date.now();
-      appState.lastSyncTimestamp = now;
-      appState.syncRevision = (Number(appState.syncRevision) || 1) + 1;
-      lastKnownSyncStamp = now;
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
 
+    function refreshIcons() {
       try {
-        const serialized = JSON.stringify(appState);
-        localStorage.setItem(STORAGE_KEY, serialized);
-        localStorage.setItem(BACKUP_STORAGE_KEY, serialized);
+        if (window.lucide && typeof window.lucide.createIcons === "function") {
+          window.lucide.createIcons();
+        }
       } catch (e) {}
-
-      if (realtimeSyncChannel) {
-        try {
-          realtimeSyncChannel.postMessage({ type: "HILNG_SYNC_UPDATE", payload: appState });
-        } catch (e) {}
-      }
-
-      scheduleCloudPush();
-      updateSyncStatusLabel();
-    }
-
-    function buildCloudBuckets(stateObj) {
-      const ts = stateObj.lastSyncTimestamp || Date.now();
-      return {
-        meta: sanitizeForCloud({
-          lastSyncTimestamp: ts,
-          syncRevision: stateObj.syncRevision || 1,
-          xpPerLevel: stateObj.xpPerLevel || 250,
-          levelTitles: stateObj.levelTitles || {},
-          deletedBadgeIds: stateObj.deletedBadgeIds || [],
-          deletedEntityIds: stateObj.deletedEntityIds || [],
-          customBadges: stateObj.customBadges || [],
-          quests: stateObj.quests || []
-        }),
-        people: sanitizeForCloud({
-          lastSyncTimestamp: ts,
-          studentsList: stateObj.studentsList || [],
-          teachersList: stateObj.teachersList || [],
-          classesList: stateObj.classesList || []
-        }),
-        academics: sanitizeForCloud({
-          lastSyncTimestamp: ts,
-          exams: stateObj.exams || [],
-          assignments: stateObj.assignments || [],
-          courses: stateObj.courses || [],
-          resources: stateObj.resources || []
-        }),
-        operations: sanitizeForCloud({
-          lastSyncTimestamp: ts,
-          rewards: stateObj.rewards || [],
-          rewardClaims: stateObj.rewardClaims || [],
-          attendanceSessions: stateObj.attendanceSessions || [],
-          attendanceReports: stateObj.attendanceReports || [],
-          notifications: (stateObj.notifications || []).slice(0, 50)
-        })
-      };
-    }
-
-    async function pushAllCloudBucketsNow() {
-      if (!cloudSyncReady || !cloudBucketRefs || !cloudSetDocFn) return;
-      try {
-        const buckets = buildCloudBuckets(appState);
-        await Promise.all([
-          cloudSetDocFn(cloudBucketRefs.meta, buckets.meta, { merge: true }),
-          cloudSetDocFn(cloudBucketRefs.people, buckets.people, { merge: true }),
-          cloudSetDocFn(cloudBucketRefs.academics, buckets.academics, { merge: true }),
-          cloudSetDocFn(cloudBucketRefs.operations, buckets.operations, { merge: true })
-        ]);
-        updateSyncStatusLabel("Đã lưu lên Cloud");
-      } catch (e) {
-        cloudSyncError = e?.message || "Sync error";
-        updateSyncStatusLabel("Lỗi ghi Cloud — dùng Mã Đồng Bộ");
-      }
-    }
-
-    function scheduleCloudPush() {
-      if (!cloudSyncReady || !cloudBucketRefs || !cloudSetDocFn) return;
-      if (cloudPushTimer) clearTimeout(cloudPushTimer);
-      cloudPushTimer = setTimeout(() => {
-        pushAllCloudBucketsNow();
-      }, 200);
-    }
-
-    function applyRemoteSyncPayload(remotePayload) {
-      if (!remotePayload || typeof remotePayload !== "object") return;
-      const prevUnread = getNotificationsForCurrentUser().filter(n => !n.read).length;
-
-      isApplyingRemoteSync = true;
-      try {
-        appState = mergeFullStates(appState, remotePayload);
-        lastKnownSyncStamp = appState.lastSyncTimestamp || Date.now();
-        const serialized = JSON.stringify(appState);
-        localStorage.setItem(STORAGE_KEY, serialized);
-        localStorage.setItem(BACKUP_STORAGE_KEY, serialized);
-      } finally {
-        isApplyingRemoteSync = false;
-      }
-
-      const nextUnread = getNotificationsForCurrentUser().filter(n => !n.read).length;
-      if (nextUnread > prevUnread) {
-        const newest = getNotificationsForCurrentUser()[0];
-        if (newest) {
-          playNotificationSound(newest.type || "info");
-        }
-      }
-
-      updateHeaderStats();
-      updateNotificationBadge();
-      renderDeadlineBanner();
-      if (appState.currentUser) {
-        renderSidebarUserCard();
-        const activeTag = document.activeElement?.tagName;
-        const isTyping = activeTag === "INPUT" || activeTag === "TEXTAREA" || activeTag === "SELECT";
-        if (!isTyping) {
-          renderCurrentView();
-        }
-      }
-      updateSyncStatusLabel("Đã đồng bộ dữ liệu mới");
-    }
-
-    function stampCollection(items) {
-      if (!Array.isArray(items)) return [];
-      const now = Date.now();
-      return items.map((item, idx) => {
-        if (!item || typeof item !== "object") return item;
-        return {
-          ...item,
-          _updatedAt: typeof item._updatedAt === "number" ? item._updatedAt : (now - idx)
-        };
-      });
-    }
-
-    function normalizeState(raw) {
-      const base = createDefaultState();
-      if (!raw || typeof raw !== "object") return base;
-      const merged = {
-        ...base,
-        ...raw,
-        xpPerLevel: Math.max(50, Number(raw.xpPerLevel) || 250),
-        levelTitles: raw.levelTitles && typeof raw.levelTitles === "object" ? raw.levelTitles : {},
-        studentProfile: {
-          ...base.studentProfile,
-          ...(raw.studentProfile || {}),
-          skills: {
-            ...base.studentProfile.skills,
-            ...((raw.studentProfile && raw.studentProfile.skills) || {})
-          }
-        },
-        customBadges: stampCollection(raw.customBadges),
-        quests: stampCollection(raw.quests && raw.quests.length ? raw.quests : base.quests),
-        rewards: stampCollection(raw.rewards),
-        rewardClaims: stampCollection(raw.rewardClaims),
-        courses: stampCollection(raw.courses),
-        resources: stampCollection(raw.resources),
-        exams: stampCollection(raw.exams),
-        assignments: stampCollection(raw.assignments),
-        studentsList: stampCollection(raw.studentsList),
-        teachersList: stampCollection(raw.teachersList),
-        classesList: stampCollection(raw.classesList),
-        attendanceSessions: stampCollection(raw.attendanceSessions),
-        attendanceReports: stampCollection(raw.attendanceReports),
-        notifications: stampCollection(raw.notifications)
-      };
-
-      if (merged.currentUser && merged.currentUser.role === "student") {
-        const stu = merged.studentsList.find(
-          s => s.email && merged.currentUser.email && s.email.toLowerCase() === merged.currentUser.email.toLowerCase()
-        );
-        if (stu) {
-          merged.studentProfile.name = stu.name;
-          merged.studentProfile.email = stu.email;
-          merged.studentProfile.phone = stu.phone || "";
-          merged.studentProfile.password = stu.password || "";
-          merged.studentProfile.classId = stu.classId || "";
-          merged.studentProfile.xp = Number(stu.xp) || 0;
-          merged.studentProfile.skills = { ...stu.skills };
-          if (stu.skinId) merged.studentProfile.skinId = stu.skinId;
-          if (stu.botId) merged.studentProfile.botId = stu.botId;
-        }
-      }
-      return merged;
-    }
-
-    // ==================== SOUND EFFECT ENGINE (MOBILE iOS & ANDROID OPTIMIZED) ====================
-    let audioCtxInstance = null;
-    let mobileAudioUnlocked = false;
-    let cachedChimeWavUrl = null;
-
-    function buildNotificationWavDataUrl(type = "info") {
-      try {
-        const sampleRate = 22050;
-        const freqs = type === "deadline" ? [880, 1174.66, 987.77] : type === "reward_claim" ? [659.25, 880, 1046.5] : [659.25, 880];
-        const noteDur = 0.13;
-        const totalSamples = Math.floor(sampleRate * (freqs.length * noteDur + 0.08));
-        const buffer = new ArrayBuffer(44 + totalSamples * 2);
-        const view = new DataView(buffer);
-
-        const writeStr = (offset, str) => {
-          for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
-        };
-        writeStr(0, "RIFF");
-        view.setUint32(4, 36 + totalSamples * 2, true);
-        writeStr(8, "WAVE");
-        writeStr(12, "fmt ");
-        view.setUint32(16, 16, true);
-        view.setUint16(20, 1, true);
-        view.setUint16(22, 1, true);
-        view.setUint32(24, sampleRate, true);
-        view.setUint32(28, sampleRate * 2, true);
-        view.setUint16(32, 2, true);
-        view.setUint16(34, 16, true);
-        writeStr(36, "data");
-        view.setUint32(40, totalSamples * 2, true);
-
-        for (let i = 0; i < totalSamples; i++) {
-          const t = i / sampleRate;
-          const noteIdx = Math.min(freqs.length - 1, Math.floor(t / noteDur));
-          const localT = t - noteIdx * noteDur;
-          const env = localT > noteDur ? 0 : Math.min(1, localT / 0.015) * Math.exp(-localT * 14);
-          const sample = Math.sin(2 * Math.PI * freqs[noteIdx] * t) * env * 0.75;
-          view.setInt16(44 + i * 2, Math.max(-1, Math.min(1, sample)) * 32767, true);
-        }
-
-        const bytes = new Uint8Array(buffer);
-        let bin = "";
-        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-        return "data:audio/wav;base64," + btoa(bin);
-      } catch (e) {
-        return null;
-      }
-    }
-
-    function getAudioCtx() {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx) return null;
-      if (!audioCtxInstance) {
-        audioCtxInstance = new Ctx();
-      }
-      if (audioCtxInstance.state === "suspended") {
-        audioCtxInstance.resume().catch(() => {});
-      }
-      return audioCtxInstance;
-    }
-
-    function unlockMobileAudio() {
-      const ctx = getAudioCtx();
-      if (ctx && !mobileAudioUnlocked) {
-        try {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(0);
-          osc.stop(ctx.currentTime + 0.01);
-          mobileAudioUnlocked = true;
-        } catch (e) {}
-      }
-      if (!cachedChimeWavUrl) {
-        cachedChimeWavUrl = buildNotificationWavDataUrl("info");
-      }
-    }
-
-    window.addEventListener("touchstart", unlockMobileAudio, { passive: true });
-    window.addEventListener("touchend", unlockMobileAudio, { passive: true });
-    window.addEventListener("pointerdown", unlockMobileAudio, { passive: true });
-    window.addEventListener("click", unlockMobileAudio, { passive: true });
-
-    function playNotificationSound(type = "info") {
-      if (!appState.soundEnabled) return;
-      try {
-        if (navigator.vibrate) {
-          navigator.vibrate(type === "deadline" ? [120, 60, 160] : [90, 40, 90]);
-        }
-
-        const wavUrl = buildNotificationWavDataUrl(type) || cachedChimeWavUrl;
-        if (wavUrl) {
-          const htmlAudio = new Audio(wavUrl);
-          htmlAudio.volume = 1.0;
-          htmlAudio.playsInline = true;
-          htmlAudio.play().catch(() => {});
-        }
-
-        const ctx = getAudioCtx();
-        if (!ctx) return;
-
-        const notes = type === "deadline"
-          ? [880, 1174.66, 987.77]
-          : type === "reward_claim"
-            ? [659.25, 880, 1046.5]
-            : type === "success"
-              ? [523.25, 659.25, 783.99]
-              : [659.25, 880];
-
-        notes.forEach((freq, idx) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = "triangle";
-          osc.frequency.setValueAtTime(freq, ctx.currentTime + idx * 0.11);
-          gain.gain.setValueAtTime(0.001, ctx.currentTime + idx * 0.11);
-          gain.gain.exponentialRampToValueAtTime(0.28, ctx.currentTime + idx * 0.11 + 0.02);
-          gain.gain.exponentialRampToValueAtTime(0.0008, ctx.currentTime + idx * 0.11 + 0.26);
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(ctx.currentTime + idx * 0.11);
-          osc.stop(ctx.currentTime + idx * 0.11 + 0.28);
-        });
-      } catch (e) {}
-    }
-
-    function toggleSoundEffect() {
-      appState.soundEnabled = !appState.soundEnabled;
-      saveState();
-      updateSoundIcon();
-      if (appState.soundEnabled) {
-        unlockMobileAudio();
-        playNotificationSound("deadline");
-      }
-    }
-
-    function initRealtimeSyncEngine() {
-      if (typeof BroadcastChannel !== "undefined") {
-        try {
-          realtimeSyncChannel = new BroadcastChannel(SYNC_CHANNEL_NAME);
-          realtimeSyncChannel.onmessage = (event) => {
-            if (event?.data?.type === "HILNG_SYNC_UPDATE" && event.data.payload) {
-              applyRemoteSyncPayload(event.data.payload);
-            }
-          };
-        } catch (e) {}
-      }
-
-      window.addEventListener("storage", (ev) => {
-        if (!ev || !ev.newValue) return;
-        if (ev.key === STORAGE_KEY || ev.key === BACKUP_STORAGE_KEY) {
-          try {
-            applyRemoteSyncPayload(JSON.parse(ev.newValue));
-          } catch (e) {}
-        }
-      });
-
-      window.addEventListener("focus", () => {
-        const latest = loadState();
-        if ((latest.lastSyncTimestamp || 0) > lastKnownSyncStamp) {
-          applyRemoteSyncPayload(latest);
-        }
-      });
-
-      setInterval(() => {
-        try {
-          const raw = localStorage.getItem(STORAGE_KEY);
-          if (!raw) return;
-          const parsed = JSON.parse(raw);
-          if ((parsed.lastSyncTimestamp || 0) > lastKnownSyncStamp) {
-            applyRemoteSyncPayload(parsed);
-          }
-        } catch (e) {}
-      }, 1500);
     }
 
     function encodeSyncPackage(stateObj) {
-      const jsonStr = JSON.stringify({
-        v: 8,
-        ts: Date.now(),
-        xpPerLevel: stateObj.xpPerLevel,
-        levelTitles: stateObj.levelTitles,
-        customBadges: stateObj.customBadges,
-        quests: stateObj.quests,
-        rewards: stateObj.rewards,
-        rewardClaims: stateObj.rewardClaims,
-        courses: stateObj.courses,
-        resources: stateObj.resources,
-        exams: stateObj.exams,
-        assignments: stateObj.assignments,
-        studentsList: stateObj.studentsList,
-        teachersList: stateObj.teachersList,
-        classesList: stateObj.classesList,
-        attendanceSessions: stateObj.attendanceSessions,
-        attendanceReports: stateObj.attendanceReports,
-        notifications: stateObj.notifications
-      });
-      const bytes = new TextEncoder().encode(jsonStr);
-      let bin = "";
-      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-      return "HILNG-SYNC::" + btoa(bin);
+      try {
+        const clean = sanitizeForCloud(stateObj);
+        const jsonStr = JSON.stringify(clean);
+        const bytes = new TextEncoder().encode(jsonStr);
+        let bin = "";
+        bytes.forEach(b => { bin += String.fromCharCode(b); });
+        return "HILNG_V8:" + btoa(bin);
+      } catch (e) {
+        return JSON.stringify(stateObj || {});
+      }
     }
 
     function decodeSyncPackage(rawText) {
-      const trimmed = (rawText || "").trim();
-      if (!trimmed) throw new Error("Empty");
-      if (trimmed.startsWith("HILNG-SYNC::")) {
-        const bin = atob(trimmed.slice("HILNG-SYNC::".length));
+      const trimmed = String(rawText || "").trim();
+      if (!trimmed) return {};
+      if (trimmed.startsWith("HILNG_V8:")) {
+        const b64 = trimmed.slice("HILNG_V8:".length);
+        const bin = atob(b64);
         const bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        for (let i = 0; i < bin.length; i++) {
+          bytes[i] = bin.charCodeAt(i);
+        }
         return JSON.parse(new TextDecoder().decode(bytes));
       }
       return JSON.parse(trimmed);
     }
 
-    // ==================== RUNTIME VARIABLES ====================
-    let authRole = "student";
-    let authMode = "login";
-    let selectedReadingExamId = null;
-    let selectedListeningExamId = null;
-    let listeningPlayCount = 0;
-    let selectedWritingExamId = null;
-    let selectedSpeakingExamId = null;
-    let speakingTranscriptText = "";
-    let speakingEditCount = 0;
-    const MAX_SPEAKING_EDITS = 5;
-    let isRecordingSpeech = false;
-    let speechRecognitionInstance = null;
-    let editingExamId = null;
-    let teacherDraftQuestions = [];
-    let pendingExamAttachmentFile = null;
-    let pendingResourceFile = null;
-    let pendingTeacherHomeworkFile = null;
-    let pendingCourseItemFile = null;
-    let courseDraftItems = [];
-    const pendingHomeworkFiles = {};
-    const pendingSkillWorkFiles = {};
-    let attendanceSelectedClassId = "";
-    let attendanceSessionDate = new Date().toISOString().slice(0, 10);
-    let attendanceSessionTopic = "";
-    let attendanceDraftMap = {};
-    let editingAttendanceSessionId = null;
-    let deferredInstallPrompt = null;
-    let radarChartInstance = null;
-
-    window.addEventListener("beforeinstallprompt", (e) => {
-      e.preventDefault();
-      deferredInstallPrompt = e;
-    });
-
-    async function triggerNativeAppInstall() {
-      if (deferredInstallPrompt) {
-        deferredInstallPrompt.prompt();
-        await deferredInstallPrompt.userChoice;
-        deferredInstallPrompt = null;
-        closeModal();
-      } else {
-        openPwaInstallModal();
-      }
+    function pushCloudBucketsNow() {
+      try {
+        if (!window.cloudSyncReady || !window.cloudBucketRefs || !window.cloudSetDocFn) return;
+        const buckets = buildCloudBuckets(appState);
+        Object.keys(buckets).forEach(key => {
+          const ref = window.cloudBucketRefs[key];
+          if (ref) {
+            Promise.resolve(window.cloudSetDocFn(ref, buckets[key], { merge: true })).catch(() => {});
+          }
+        });
+      } catch (e) {}
     }
 
-    function isStaffRole(role) {
-      return role === "teacher" || role === "manager";
+    function saveState() {
+      try {
+        appState.lastSyncTimestamp = Date.now();
+        appState.syncRevision = (Number(appState.syncRevision) || 0) + 1;
+        const serialized = JSON.stringify(appState);
+        localStorage.setItem(STORAGE_KEY, serialized);
+        localStorage.setItem(BACKUP_STORAGE_KEY, serialized);
+
+        if (!isApplyingRemoteSync && realtimeSyncChannel) {
+          realtimeSyncChannel.postMessage({
+            type: "STATE_UPDATE",
+            senderId: window.__HILNG_TAB_ID__ || "tab",
+            timestamp: appState.lastSyncTimestamp,
+            payload: sanitizeForCloud(appState)
+          });
+        }
+
+        if (!isApplyingRemoteSync) {
+          clearTimeout(cloudPushTimer);
+          cloudPushTimer = setTimeout(() => {
+            pushCloudBucketsNow();
+          }, 120);
+        }
+      } catch (e) {}
+    }
+
+    function initRealtimeSyncEngine() {
+      try {
+        if (!window.__HILNG_TAB_ID__) {
+          window.__HILNG_TAB_ID__ = "tab-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7);
+        }
+        if ("BroadcastChannel" in window) {
+          realtimeSyncChannel = new BroadcastChannel(SYNC_CHANNEL_NAME);
+          realtimeSyncChannel.onmessage = (event) => {
+            const msg = event.data;
+            if (!msg || msg.senderId === window.__HILNG_TAB_ID__) return;
+            if (msg.type === "STATE_UPDATE" && msg.payload) {
+              isApplyingRemoteSync = true;
+              appState = mergeFullStates(appState, msg.payload);
+              try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+              } catch (e) {}
+              isApplyingRemoteSync = false;
+              updateSyncStatusLabel("Đã đồng bộ tức thì");
+              if (appState.currentUser) {
+                renderCurrentView();
+                refreshIcons();
+              }
+            }
+          };
+        }
+        window.addEventListener("storage", (ev) => {
+          if (ev.key === STORAGE_KEY && ev.newValue) {
+            try {
+              const incoming = JSON.parse(ev.newValue);
+              isApplyingRemoteSync = true;
+              appState = mergeFullStates(appState, incoming);
+              isApplyingRemoteSync = false;
+              updateSyncStatusLabel("Đã đồng bộ tab khác");
+              if (appState.currentUser) {
+                renderCurrentView();
+                refreshIcons();
+              }
+            } catch (e) {}
+          }
+        });
+      } catch (e) {}
     }
 
     function getXpPerLevel() {
       return Math.max(50, Number(appState.xpPerLevel) || 250);
     }
 
-    function calcLevel(xp) {
-      const step = getXpPerLevel();
-      return Math.max(1, Math.floor((Number(xp) || 0) / step) + 1);
+    function calcLevel(xp = 0) {
+      return Math.max(1, Math.floor(Math.max(0, Number(xp) || 0) / getXpPerLevel()) + 1);
     }
 
-    function getLevelTitle(levelNum) {
-      const titles = appState.levelTitles || {};
-      if (titles[levelNum]) return titles[levelNum];
-      if (levelNum >= 10) return "Cambridge B2 Distinction";
-      if (levelNum >= 7) return "PET Merit Scholar";
-      if (levelNum >= 4) return "B1 Explorer";
+    function getLevelTitle(levelNum = 1) {
+      const custom = appState.levelTitles && appState.levelTitles[levelNum];
+      if (custom) return custom;
+      if (levelNum >= 10) return "Cambridge Master B1+";
+      if (levelNum >= 6) return "B1 Merit Achiever";
+      if (levelNum >= 3) return "B1 Entry Explorer";
       return "PET Starter";
     }
 
-    function calcOverallScore(skills) {
-      if (!skills) return 140;
+    function calcOverallScore(skills = {}) {
       const r = Number(skills.reading) || 140;
       const l = Number(skills.listening) || 140;
       const w = Number(skills.writing) || 140;
@@ -1097,80 +839,518 @@
       return Math.round((r + l + w + s) / 4);
     }
 
-    function getCambridgeGradeLabel(overall) {
-      const sc = Number(overall) || 140;
-      if (sc >= 160) return { label: "Grade A (B2)", cls: "bg-amber-500/15 text-amber-700 dark:text-amber-300" };
-      if (sc >= 153) return { label: "Merit (B1)", cls: "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300" };
-      if (sc >= 140) return { label: "Pass (B1)", cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" };
-      return { label: "Level A2", cls: "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300" };
+    function getCambridgeGradeBadge(score = 140) {
+      if (score >= 160) return { label: "Grade A (B2)", cls: "bg-amber-500/15 text-amber-700 dark:text-amber-300" };
+      if (score >= 153) return { label: "Grade B (Merit)", cls: "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300" };
+      if (score >= 140) return { label: "Grade C (Pass)", cls: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" };
+      return { label: "A2 / Pre-B1", cls: "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300" };
+    }
+
+    function getClassNameById(classId) {
+      if (!classId) return "Chưa phân lớp";
+      const found = (appState.classesList || []).find(c => c.id === classId);
+      return found ? found.name : "Chưa phân lớp";
+    }
+
+    function getAllBadges() {
+      const deletedSet = new Set(appState.deletedBadgeIds || []);
+      const map = new Map();
+      BADGES_CATALOG.forEach(b => {
+        if (!deletedSet.has(b.id)) map.set(b.id, { ...b });
+      });
+      (appState.customBadges || []).forEach(b => {
+        if (!b || !b.id || deletedSet.has(b.id)) return;
+        const base = map.get(b.id) || {};
+        map.set(b.id, { ...base, ...b });
+      });
+      return Array.from(map.values());
+    }
+
+    function isBadgeUnlockedForStudent(badge) {
+      if (!badge) return false;
+      if (typeof badge.manualUnlocked === "boolean") return badge.manualUnlocked;
+      return (Number(appState.studentProfile?.xp) || 0) >= (Number(badge.reqXp) || 0);
+    }
+
+    function formatClockTime(ts) {
+      try {
+        return new Date(ts || Date.now()).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+      } catch (e) {
+        return "";
+      }
+    }
+
+    function formatRelativeTime(ts) {
+      const diffSec = Math.max(0, Math.floor((Date.now() - (ts || Date.now())) / 1000));
+      if (diffSec < 60) return "Vừa xong";
+      const mins = Math.floor(diffSec / 60);
+      if (mins < 60) return `${mins} phút trước`;
+      const hrs = Math.floor(mins / 60);
+      if (hrs < 24) return `${hrs} giờ trước`;
+      return `${Math.floor(hrs / 24)} ngày trước`;
+    }
+
+    function getNotificationsForCurrentUser() {
+      return appState.notifications || [];
+    }
+
+    function updateNotificationBadge() {
+      const badge = document.getElementById("notif-badge");
+      if (!badge) return;
+      const unread = getNotificationsForCurrentUser().filter(n => !n.read).length;
+      if (unread > 0) {
+        badge.textContent = String(unread);
+        badge.classList.remove("hidden");
+      } else {
+        badge.classList.add("hidden");
+      }
+    }
+
+    function getPendingDeadlinesList() {
+      const list = [];
+      (appState.assignments || []).forEach(a => {
+        if (a.status === "pending") {
+          list.push({ kind: "Bài tập", title: a.title, due: a.dueDate || "Sắp tới" });
+        }
+      });
+      (appState.courses || []).forEach(c => {
+        if (!c.completed && c.deadline) {
+          list.push({ kind: "Khóa học", title: c.title, due: c.deadline });
+        }
+      });
+      return list;
+    }
+
+    function renderDeadlineBanner() {
+      const slot = document.getElementById("deadline-banner-slot");
+      if (!slot) return;
+      if (appState.currentUser?.role !== "student") {
+        slot.innerHTML = "";
+        return;
+      }
+      const deadlines = getPendingDeadlinesList();
+      if (deadlines.length === 0) {
+        slot.innerHTML = "";
+        return;
+      }
+      slot.innerHTML = `
+        <div class="w-full max-w-7xl mx-auto px-4 sm:px-6 pt-3">
+          <div class="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/25 flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div class="flex items-center gap-2 font-bold text-rose-700 dark:text-rose-300">
+              <span>⏰ Nhắc Deadline (${deadlines.length}):</span>
+              <span class="truncate">${escapeHtml(deadlines[0].title)} — <strong>${escapeHtml(deadlines[0].due)}</strong></span>
+            </div>
+            <button onclick="openNotificationDrawer()" class="px-2.5 py-1 rounded-lg bg-rose-600 text-white font-bold text-[11px]">Xem tất cả</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function showToast(title, message, type = "info", playChime = false) {
+      const container = document.getElementById("toast-container");
+      if (container) {
+        const el = document.createElement("div");
+        el.className = "pointer-events-auto glass-panel rounded-2xl p-3.5 border-l-4 border-indigo-500 shadow-xl text-xs space-y-1";
+        el.innerHTML = `<div class="font-extrabold text-sm">${escapeHtml(title)}</div><div class="text-slate-600 dark:text-slate-300">${escapeHtml(message)}</div>`;
+        container.appendChild(el);
+        setTimeout(() => { el.remove(); }, 3600);
+      }
+      if (playChime && appState.soundEnabled) {
+        try {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (AudioCtx) {
+            const ctx = new AudioCtx();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = "sine";
+            osc.frequency.setValueAtTime(880, ctx.currentTime);
+            gain.gain.setValueAtTime(0.08, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.36);
+          }
+        } catch (e) {}
+      }
+    }
+
+    let currentAuthRole = "student";
+    let currentAuthMode = "login";
+    let deferredInstallPrompt = null;
+    let attendanceSelectedClassId = "";
+    let attendanceSessionDate = new Date().toISOString().slice(0, 10);
+    let attendanceSessionTopic = "";
+    let attendanceDraftMap = {};
+    let editingAttendanceSessionId = null;
+    let editingExamId = null;
+    let teacherDraftQuestions = [];
+    let pendingExamAttachmentFile = null;
+    let pendingResourceFile = null;
+    let pendingCourseItemFile = null;
+    let courseDraftItems = [];
+    let pendingTeacherHomeworkFile = null;
+
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+    });
+
+    function triggerNativeAppInstall() {
+      if (!deferredInstallPrompt) return;
+      deferredInstallPrompt.prompt();
+      deferredInstallPrompt.userChoice.finally(() => {
+        deferredInstallPrompt = null;
+        closeModal();
+      });
+    }
+
+    function applyTheme() {
+      const isDark = appState.theme === "dark";
+      document.documentElement.classList.toggle("dark", isDark);
+      const iconSvg = isDark
+        ? '<svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>'
+        : '<svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>';
+      ["auth-theme-icon-wrap", "app-theme-icon-wrap"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = iconSvg;
+      });
+    }
+
+    function toggleTheme() {
+      appState.theme = appState.theme === "dark" ? "light" : "dark";
+      applyTheme();
+      saveState();
+    }
+
+    function updateSoundIcon() {
+      const wrap = document.getElementById("sound-icon-wrap");
+      if (!wrap) return;
+      wrap.innerHTML = appState.soundEnabled
+        ? '<svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>'
+        : '<svg viewBox="0 0 24 24" class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>';
+    }
+
+    function toggleSoundEffect() {
+      appState.soundEnabled = !appState.soundEnabled;
+      updateSoundIcon();
+      saveState();
+      if (appState.soundEnabled) {
+        showToast("Đã bật chuông thông báo", "Âm thanh thông báo đã sẵn sàng.", "info", true);
+      }
+    }
+
+    function switchAuthRole(role) {
+      currentAuthRole = role;
+      ["student", "teacher", "manager"].forEach(r => {
+        const tab = document.getElementById(`role-tab-${r}`);
+        if (!tab) return;
+        if (r === role) {
+          tab.className = "py-2.5 px-2 rounded-xl font-bold text-xs sm:text-sm bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm transition";
+        } else {
+          tab.className = "py-2.5 px-2 rounded-xl font-bold text-xs sm:text-sm text-slate-600 dark:text-slate-400 transition";
+        }
+      });
+
+      const badge = document.getElementById("auth-role-badge");
+      const codeGroup = document.getElementById("teacher-code-group");
+      const codeLabel = document.getElementById("internal-code-label");
+      const regTab = document.getElementById("mode-tab-register");
+
+      if (role === "student") {
+        if (badge) badge.textContent = "Học viên B1 PET";
+        if (codeGroup) codeGroup.classList.add("hidden");
+        if (regTab) regTab.classList.remove("hidden");
+      } else if (role === "teacher") {
+        if (badge) badge.textContent = "Giáo viên chuyên môn";
+        if (codeGroup) codeGroup.classList.remove("hidden");
+        if (codeLabel) codeLabel.textContent = "Mã xác thực nội bộ Giáo viên";
+        if (regTab) regTab.classList.add("hidden");
+        switchAuthMode("login");
+      } else {
+        if (badge) badge.textContent = "Quản lý học vụ (Manager)";
+        if (codeGroup) codeGroup.classList.remove("hidden");
+        if (codeLabel) codeLabel.textContent = "Mã xác thực nội bộ Manager";
+        if (regTab) regTab.classList.add("hidden");
+        switchAuthMode("login");
+      }
+      refreshIcons();
+    }
+
+    function switchAuthMode(mode) {
+      currentAuthMode = mode;
+      const loginBtn = document.getElementById("mode-tab-login");
+      const regBtn = document.getElementById("mode-tab-register");
+      const nameGroup = document.getElementById("register-name-group");
+      const submitBtn = document.getElementById("auth-submit-btn");
+
+      if (mode === "register" && currentAuthRole === "student") {
+        if (loginBtn) loginBtn.className = "px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800";
+        if (regBtn) regBtn.className = "px-3 py-1.5 rounded-xl text-xs font-extrabold bg-indigo-600 text-white";
+        if (nameGroup) nameGroup.classList.remove("hidden");
+        if (submitBtn) submitBtn.textContent = "Tạo Tài Khoản Học Sinh";
+      } else {
+        currentAuthMode = "login";
+        if (loginBtn) loginBtn.className = "px-3 py-1.5 rounded-xl text-xs font-extrabold bg-indigo-600 text-white";
+        if (regBtn) regBtn.className = "px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800";
+        if (nameGroup) nameGroup.classList.add("hidden");
+        if (submitBtn) submitBtn.textContent = "Đăng Nhập Vào Hệ Thống";
+      }
+    }
+
+    function handleAuthSubmit(event) {
+      event.preventDefault();
+      const nameVal = (document.getElementById("auth-name")?.value || "").trim();
+      const emailVal = (document.getElementById("auth-email")?.value || "").trim();
+      const passVal = (document.getElementById("auth-password")?.value || "").trim();
+      const codeVal = (document.getElementById("auth-teacher-code")?.value || "").trim();
+
+      if (!emailVal || !passVal) {
+        showToast("Thiếu thông tin", "Vui lòng nhập đầy đủ Email và Mật khẩu.", "warning");
+        return;
+      }
+
+      if (currentAuthRole === "teacher") {
+        const matchedTch = (appState.teachersList || []).find(
+          t => t.email && t.email.toLowerCase() === emailVal.toLowerCase() && (!t.password || t.password === passVal)
+        );
+        const validCode = codeVal === TEACHER_SECRET_CODE || Boolean(matchedTch);
+        if (!validCode) {
+          showToast("Sai mã xác thực", "Vui lòng kiểm tra lại tài khoản hoặc mã xác thực Giáo viên.", "error");
+          return;
+        }
+        appState.currentUser = {
+          role: "teacher",
+          name: matchedTch ? matchedTch.name : (emailVal.split("@")[0] || "Giáo viên PET"),
+          email: emailVal
+        };
+        appState.activeTab = "teacher-dashboard";
+        saveState();
+        enterWorkspace();
+        return;
+      }
+
+      if (currentAuthRole === "manager") {
+        const validMgrCode = codeVal === MANAGER_SECRET_CODE || codeVal === TEACHER_SECRET_CODE;
+        if (!validMgrCode) {
+          showToast("Sai mã xác thực", "Vui lòng nhập đúng mã xác thực nội bộ Manager.", "error");
+          return;
+        }
+        appState.currentUser = {
+          role: "manager",
+          name: emailVal.split("@")[0] || "Manager PET",
+          email: emailVal
+        };
+        appState.activeTab = "manager-center";
+        saveState();
+        enterWorkspace();
+        return;
+      }
+
+      appState.studentsList = appState.studentsList || [];
+      const foundStu = appState.studentsList.find(
+        s => s.email && s.email.toLowerCase() === emailVal.toLowerCase()
+      );
+
+      if (currentAuthMode === "register") {
+        const finalName = nameVal || emailVal.split("@")[0] || "Học viên PET";
+        if (foundStu) {
+          foundStu.name = finalName;
+          foundStu.password = passVal;
+          foundStu._updatedAt = Date.now();
+          appState.studentProfile = { ...appState.studentProfile, ...foundStu };
+        } else {
+          const newStu = {
+            id: "stu-" + Date.now(),
+            name: finalName,
+            email: emailVal,
+            password: passVal,
+            phone: "",
+            classId: "",
+            skills: { reading: 140, listening: 140, writing: 140, speaking: 140 },
+            xp: 0,
+            skinId: "oxford",
+            botId: "pip",
+            status: "Đang học",
+            _updatedAt: Date.now()
+          };
+          appState.studentsList.unshift(newStu);
+          appState.studentProfile = { ...appState.studentProfile, ...newStu };
+        }
+      } else if (foundStu) {
+        appState.studentProfile = {
+          ...appState.studentProfile,
+          ...foundStu,
+          skills: { ...(appState.studentProfile?.skills || {}), ...(foundStu.skills || {}) }
+        };
+      } else {
+        const fallbackName = nameVal || emailVal.split("@")[0] || "Học viên PET";
+        appState.studentProfile = {
+          ...appState.studentProfile,
+          id: appState.studentProfile?.id || ("stu-" + Date.now()),
+          name: fallbackName,
+          email: emailVal,
+          password: passVal
+        };
+      }
+
+      appState.currentUser = {
+        role: "student",
+        name: appState.studentProfile.name || emailVal.split("@")[0],
+        email: emailVal
+      };
+      appState.activeTab = "dashboard";
+      saveState();
+      enterWorkspace();
+    }
+
+    function logoutUser() {
+      appState.currentUser = null;
+      saveState();
+      document.getElementById("app-shell")?.classList.add("hidden");
+      document.getElementById("floating-companion")?.classList.add("hidden");
+      document.getElementById("auth-screen")?.classList.remove("hidden");
+      refreshIcons();
+    }
+
+    function enterWorkspace() {
+      if (!appState.currentUser) return;
+      document.getElementById("auth-screen")?.classList.add("hidden");
+      document.getElementById("app-shell")?.classList.remove("hidden");
+
+      const role = appState.currentUser.role;
+      const roleLabel = document.getElementById("sidebar-role-label");
+      const statsPill = document.getElementById("header-student-stats");
+      const companion = document.getElementById("floating-companion");
+
+      if (role === "student") {
+        if (roleLabel) roleLabel.textContent = "Học viên Cambridge B1 PET";
+        if (statsPill) statsPill.classList.remove("hidden");
+        if (companion) companion.classList.remove("hidden");
+        if (!STUDENT_NAV.some(n => n.id === appState.activeTab)) {
+          appState.activeTab = "dashboard";
+        }
+      } else if (role === "teacher") {
+        if (roleLabel) roleLabel.textContent = "Giáo viên chuyên môn PET";
+        if (statsPill) statsPill.classList.add("hidden");
+        if (companion) companion.classList.add("hidden");
+        if (!TEACHER_NAV.some(n => n.id === appState.activeTab)) {
+          appState.activeTab = "teacher-dashboard";
+        }
+      } else {
+        if (roleLabel) roleLabel.textContent = "Quản lý học vụ (Manager)";
+        if (statsPill) statsPill.classList.add("hidden");
+        if (companion) companion.classList.add("hidden");
+        if (!MANAGER_NAV.some(n => n.id === appState.activeTab)) {
+          appState.activeTab = "manager-center";
+        }
+      }
+
+      renderSidebarUserCard();
+      renderNavigation();
+      updateHeaderStats();
+      updateNotificationBadge();
+      renderDeadlineBanner();
+      syncCompanionBotUI();
+      renderCurrentView();
+      refreshIcons();
+    }
+
+    function navigateTo(tabId) {
+      appState.activeTab = tabId;
+      saveState();
+      renderNavigation();
+      renderCurrentView();
+      refreshIcons();
+    }
+
+    function getNavItemsForRole() {
+      const role = appState.currentUser?.role;
+      if (role === "teacher") return TEACHER_NAV;
+      if (role === "manager") return MANAGER_NAV;
+      return STUDENT_NAV;
+    }
+
+    function renderNavigation() {
+      const items = getNavItemsForRole();
+      const sidebarNav = document.getElementById("sidebar-nav");
+      const mobileNav = document.getElementById("mobile-bottom-nav");
+
+      if (sidebarNav) {
+        sidebarNav.innerHTML = items.map(item => {
+          const active = appState.activeTab === item.id;
+          return `
+            <button type="button" onclick="navigateTo('${item.id}')" class="w-full px-3.5 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-3 transition ${
+              active
+                ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/25"
+                : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80"
+            }">
+              <i data-lucide="${item.icon}" class="w-4 h-4 shrink-0"></i>
+              <span class="truncate">${escapeHtml(item.label)}</span>
+            </button>
+          `;
+        }).join("");
+      }
+
+      if (mobileNav) {
+        mobileNav.innerHTML = items.slice(0, 5).map(item => {
+          const active = appState.activeTab === item.id;
+          return `
+            <button type="button" onclick="navigateTo('${item.id}')" class="flex flex-col items-center justify-center py-1 px-2 rounded-xl min-w-[60px] text-[10px] font-bold transition ${
+              active ? "text-indigo-600 dark:text-indigo-400 bg-indigo-500/10" : "text-slate-500"
+            }">
+              <i data-lucide="${item.icon}" class="w-4 h-4 mb-0.5"></i>
+              <span class="truncate max-w-[64px]">${escapeHtml(item.label.split(" ")[0])}</span>
+            </button>
+          `;
+        }).join("");
+      }
+    }
+
+    function renderSidebarUserCard() {
+      const card = document.getElementById("sidebar-user-card");
+      if (!card || !appState.currentUser) return;
+      const role = appState.currentUser.role;
+      if (role === "student") {
+        const prof = appState.studentProfile || {};
+        const skin = SKIN_CATALOG.find(s => s.id === prof.skinId) || SKIN_CATALOG[1];
+        const lv = calcLevel(prof.xp || 0);
+        card.innerHTML = `
+          <div class="flex items-center gap-3">
+            <div class="w-11 h-11 rounded-2xl bg-gradient-to-br ${skin.ring} flex items-center justify-center text-xl shadow-md shrink-0">${skin.emoji}</div>
+            <div class="min-w-0">
+              <div class="font-display font-extrabold text-sm truncate">${escapeHtml(prof.name || appState.currentUser.name)}</div>
+              <div class="text-[11px] font-bold text-indigo-600 dark:text-indigo-400">Lv.${lv} • ${escapeHtml(getLevelTitle(lv))}</div>
+              <div class="text-[10px] text-slate-500 truncate">Lớp: ${escapeHtml(getClassNameById(prof.classId))}</div>
+            </div>
+          </div>
+        `;
+      } else {
+        card.innerHTML = `
+          <div class="flex items-center gap-3">
+            <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-600 to-amber-500 flex items-center justify-center text-white font-extrabold text-base shrink-0">
+              ${escapeHtml((appState.currentUser.name || "U").slice(0, 1).toUpperCase())}
+            </div>
+            <div class="min-w-0">
+              <div class="font-display font-extrabold text-sm truncate">${escapeHtml(appState.currentUser.name)}</div>
+              <div class="text-[11px] text-slate-500 truncate">${escapeHtml(appState.currentUser.email)}</div>
+            </div>
+          </div>
+        `;
+      }
     }
 
     function updateHeaderStats() {
-      const sp = appState.studentProfile;
-      const lvl = calcLevel(sp.xp || 0);
       const xpEl = document.getElementById("header-xp-text");
-      const lvlEl = document.getElementById("header-level-text");
-      if (xpEl) xpEl.textContent = `${sp.xp || 0} XP`;
-      if (lvlEl) lvlEl.textContent = `Lv.${lvl} (${getLevelTitle(lvl)})`;
-    }
-
-    function addXp(amount, reason = "") {
-      const gain = Math.max(0, Number(amount) || 0);
-      appState.studentProfile.xp = (Number(appState.studentProfile.xp) || 0) + gain;
-      const idx = (appState.studentsList || []).findIndex(
-        s => s.email.toLowerCase() === (appState.studentProfile.email || "").toLowerCase()
-      );
-      if (idx !== -1) {
-        appState.studentsList[idx].xp = appState.studentProfile.xp;
-        appState.studentsList[idx]._updatedAt = Date.now();
-      }
-      saveState();
-      updateHeaderStats();
+      const lvEl = document.getElementById("header-level-text");
+      const xp = Number(appState.studentProfile?.xp) || 0;
+      if (xpEl) xpEl.textContent = `${xp} XP`;
+      if (lvEl) lvEl.textContent = `Lv.${calcLevel(xp)}`;
       renderSidebarUserCard();
-      if (reason) {
-        pushNotification(`⚡ +${gain} XP`, reason, "success", false);
-      }
     }
 
-    function boostStudentSkillScore(skillKey, delta) {
-      const sp = appState.studentProfile;
-      if (!sp.skills || !skillKey) return;
-      sp.skills[skillKey] = Math.min(170, Math.max(100, (Number(sp.skills[skillKey]) || 140) + delta));
-      const idx = (appState.studentsList || []).findIndex(
-        s => s.email.toLowerCase() === (sp.email || "").toLowerCase()
-      );
-      if (idx !== -1) {
-        appState.studentsList[idx].skills = { ...sp.skills };
-        appState.studentsList[idx]._updatedAt = Date.now();
-      }
-      saveState();
-    }
-
-    function completeQuestBySkill(skillName) {
-      const q = (appState.quests || []).find(item => !item.completed && item.skill.toLowerCase() === skillName.toLowerCase());
-      if (q) {
-        q.completed = true;
-        q._updatedAt = Date.now();
-        addXp(q.xp, `Tự động hoàn thành nhiệm vụ: ${q.title}`);
-      }
-    }
-
-    function processDailyLoginStreak() {
-      const sp = appState.studentProfile;
-      const todayKey = new Date().toISOString().slice(0, 10);
-      if (!sp.lastLoginDateKey) {
-        sp.lastLoginDateKey = todayKey;
-        sp.streak = Math.max(1, Number(sp.streak) || 1);
-      } else if (sp.lastLoginDateKey !== todayKey) {
-        sp.lastLoginDateKey = todayKey;
-        sp.streak = (Number(sp.streak) || 1) + 1;
-        addXp(30, `Chuỗi đăng nhập ${sp.streak} ngày liên tiếp!`);
-      }
-    }
-
-    function syncCompanionWidget() {
-      const sp = appState.studentProfile;
-      const bot = BOT_CATALOG.find(b => b.id === sp.botId) || BOT_CATALOG[0];
+    function syncCompanionBotUI() {
+      const bot = BOT_CATALOG.find(b => b.id === appState.studentProfile?.botId) || BOT_CATALOG[0];
       const titleEl = document.getElementById("companion-bot-title");
       const msgEl = document.getElementById("companion-bot-message");
       const emojiEl = document.getElementById("companion-bot-emoji");
@@ -1191,588 +1371,45 @@
       }
     }
 
-    function getAllBadges() {
-      const deletedSet = new Set(appState.deletedBadgeIds || []);
-      const base = BADGES_CATALOG.filter(b => !deletedSet.has(b.id)).map(b => ({ ...b, isCustom: false }));
-      const custom = (appState.customBadges || []).filter(b => !b._deleted).map(b => ({ ...b, isCustom: true }));
-      const map = new Map();
-      base.forEach(item => map.set(item.id, item));
-      custom.forEach(item => map.set(item.id, { ...(map.get(item.id) || {}), ...item }));
-      return Array.from(map.values());
-    }
-
-    function isBadgeUnlockedForStudent(badge) {
-      if (typeof badge.manualUnlocked === "boolean") return badge.manualUnlocked;
-      return (appState.studentProfile?.xp || 0) >= (badge.reqXp || 0);
-    }
-
-    function syncLiveStateAcrossWorkspace() {
-      saveState();
-      updateHeaderStats();
-      updateNotificationBadge();
-      renderDeadlineBanner();
-      if (appState.currentUser) {
-        renderSidebarUserCard();
-      }
-    }
-
-    function escapeHtml(str) {
-      if (str === null || str === undefined) return "";
-      return String(str)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-    }
-
-    // ==================== FILE READER & DOWNLOAD HELPERS ====================
-    function readUploadedFileMeta(file, callback) {
-      if (!file) {
-        callback(null);
-        return;
-      }
+    function readUploadedFileMeta(file, cb) {
+      if (!file) return cb && cb(null);
       const ext = (file.name.split(".").pop() || "FILE").toUpperCase();
-      const sizeStr = file.size < 1024 * 1024
-        ? `${Math.max(1, Math.round(file.size / 1024))} KB`
-        : `${(file.size / (1024 * 1024)).toFixed(2)} MB`;
-
-      if (file.size <= 3 * 1024 * 1024) {
+      const kb = (file.size / 1024).toFixed(1);
+      const sizeStr = file.size > 1048576 ? `${(file.size / 1048576).toFixed(2)} MB` : `${kb} KB`;
+      const meta = {
+        name: file.name,
+        format: ext,
+        size: sizeStr,
+        mime: file.type || "application/octet-stream",
+        dataUrl: ""
+      };
+      if (file.size <= 350000) {
         const reader = new FileReader();
-        reader.onload = (ev) => {
-          callback({
-            name: file.name,
-            format: ext,
-            size: sizeStr,
-            mimeType: file.type || "application/octet-stream",
-            dataUrl: ev.target.result
-          });
+        reader.onload = () => {
+          meta.dataUrl = typeof reader.result === "string" ? reader.result : "";
+          if (cb) cb(meta);
         };
+        reader.onerror = () => cb && cb(meta);
         reader.readAsDataURL(file);
-      } else {
-        callback({
-          name: file.name,
-          format: ext,
-          size: sizeStr,
-          mimeType: file.type || "application/octet-stream",
-          dataUrl: null
-        });
+      } else if (cb) {
+        cb(meta);
       }
     }
 
-    function downloadStoredFileObject(fileObj, fallbackLabel = "Hilng_PET_File") {
+    function downloadStoredFileObject(fileObj, fallbackTitle = "tailieu") {
       if (!fileObj) return;
-      const a = document.createElement("a");
       if (fileObj.dataUrl) {
+        const a = document.createElement("a");
         a.href = fileObj.dataUrl;
-        a.download = fileObj.name || fallbackLabel;
-      } else {
-        const blob = new Blob([`Tệp đính kèm: ${fileObj.name || fallbackLabel}\nĐịnh dạng: ${fileObj.format || "FILE"} (${fileObj.size || ""})`], { type: "text/plain;charset=utf-8" });
-        a.href = URL.createObjectURL(blob);
-        a.download = `${fileObj.name || fallbackLabel}.txt`;
+        a.download = fileObj.name || fallbackTitle;
+        a.click();
+        return;
       }
-      document.body.appendChild(a);
+      const blob = new Blob([`Tài liệu: ${fileObj.name || fallbackTitle}\nKích thước: ${fileObj.size || ""}`], { type: "text/plain;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = (fileObj.name || fallbackTitle) + ".txt";
       a.click();
-      document.body.removeChild(a);
-    }
-
-    function updateSoundIcon() {
-      const wrap = document.getElementById("sound-icon-wrap");
-      if (!wrap) return;
-      wrap.innerHTML = `<i data-lucide="${appState.soundEnabled ? "volume-2" : "volume-x"}" class="w-4 h-4"></i>`;
-      refreshIcons();
-    }
-
-    function refreshIcons() {
-      try {
-        if (window.lucide && typeof window.lucide.createIcons === "function") {
-          window.lucide.createIcons();
-        }
-      } catch (e) {}
-    }
-
-    // ==================== NOTIFICATIONS, REWARD ALERTS & DEADLINE REMINDERS ====================
-    function formatRelativeTime(ts) {
-      const diffSec = Math.max(0, Math.floor((Date.now() - (ts || Date.now())) / 1000));
-      if (diffSec < 10) return "Vừa xong";
-      if (diffSec < 60) return `${diffSec} giây trước`;
-      const diffMin = Math.floor(diffSec / 60);
-      if (diffMin < 60) return `${diffMin} phút trước`;
-      const diffHr = Math.floor(diffMin / 60);
-      if (diffHr < 24) return `${diffHr} giờ trước`;
-      return `${Math.floor(diffHr / 24)} ngày trước`;
-    }
-
-    function formatClockTime(ts) {
-      const d = new Date(ts || Date.now());
-      return d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    }
-
-    function pushNotification(title, message, type = "info", playSound = true, meta = {}) {
-      const item = {
-        id: "nt-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
-        title,
-        message,
-        type,
-        targetRoles: meta.targetRoles || null,
-        targetTeacherId: meta.targetTeacherId || null,
-        targetClassId: meta.targetClassId || null,
-        timestamp: Date.now(),
-        _updatedAt: Date.now(),
-        read: false
-      };
-      appState.notifications = [item, ...(appState.notifications || [])].slice(0, 60);
-      saveState();
-      updateNotificationBadge();
-      if (playSound) playNotificationSound(type);
-    }
-
-    function getNotificationsForCurrentUser() {
-      const user = appState.currentUser;
-      const list = appState.notifications || [];
-      if (!user) return [];
-      return list.filter(n => {
-        if (!n.targetRoles) return true;
-        if (!n.targetRoles.includes(user.role)) return false;
-        if (user.role === "teacher" && n.targetTeacherId && user.id && n.targetTeacherId !== user.id) {
-          return false;
-        }
-        return true;
-      });
-    }
-
-    function updateNotificationBadge() {
-      const badge = document.getElementById("notif-badge");
-      if (!badge) return;
-      const unread = getNotificationsForCurrentUser().filter(n => !n.read).length;
-      if (unread > 0) {
-        badge.classList.remove("hidden");
-        badge.textContent = unread > 9 ? "9+" : String(unread);
-      } else {
-        badge.classList.add("hidden");
-      }
-    }
-
-    function getPendingDeadlinesList() {
-      const items = [];
-      (appState.assignments || []).forEach(a => {
-        if (a.status === "pending" && a.dueDate) {
-          items.push({ kind: "Bài tập", title: a.title, due: a.dueDate });
-        }
-      });
-      (appState.courses || []).forEach(c => {
-        if (!c.completed && c.deadline) {
-          items.push({ kind: "Khóa học", title: c.title, due: c.deadline });
-        }
-      });
-      (appState.exams || []).filter(e => e.isTeacherRoom && e.deadline).forEach(ex => {
-        items.push({ kind: "Phòng thi", title: ex.title, due: ex.deadline });
-      });
-      return items;
-    }
-
-    function renderDeadlineBanner() {
-      const slot = document.getElementById("deadline-banner-slot");
-      if (!slot) return;
-      if (!appState.currentUser || appState.currentUser.role !== "student") {
-        slot.innerHTML = "";
-        return;
-      }
-      const pending = getPendingDeadlinesList();
-      if (pending.length === 0) {
-        slot.innerHTML = "";
-        return;
-      }
-      const first = pending[0];
-      slot.innerHTML = `
-        <div class="bg-gradient-to-r from-amber-500/15 via-rose-500/15 to-indigo-500/15 border-b border-amber-500/30 px-4 sm:px-6 py-2.5">
-          <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs">
-            <div class="flex items-center gap-2 min-w-0">
-              <span class="px-2 py-0.5 rounded-full bg-rose-600 text-white font-extrabold text-[10px] shrink-0">DEADLINE (${pending.length})</span>
-              <span class="font-bold truncate text-slate-800 dark:text-slate-100">
-                Nhắc hạn [${escapeHtml(first.kind)}]: ${escapeHtml(first.title)} — <span class="text-rose-600 dark:text-rose-400">${escapeHtml(first.due)}</span>
-              </span>
-            </div>
-            <button onclick="openNotificationDrawer()" class="font-extrabold text-indigo-700 dark:text-indigo-300 underline shrink-0">
-              Xem tất cả hạn nộp
-            </button>
-          </div>
-        </div>
-      `;
-    }
-
-    function showToast(title, message, type = "info", recordInFeed = true, meta = {}) {
-      const isImportant = type === "deadline" || type === "reward_claim";
-      if (recordInFeed && isImportant) {
-        pushNotification(title, message, type, true, meta);
-      }
-      if (!isImportant) {
-        updateSyncStatusLabel(title);
-        return;
-      }
-
-      const container = document.getElementById("toast-container");
-      if (!container) return;
-      const el = document.createElement("div");
-      const nowStr = formatClockTime(Date.now());
-      const borderCls = type === "reward_claim" ? "border-emerald-500" : "border-amber-500/80";
-      el.className = `pointer-events-auto glass-panel border-l-4 ${borderCls} bg-white/95 dark:bg-slate-900/95 rounded-2xl p-3.5 shadow-2xl transition-all duration-300`;
-      el.innerHTML = `
-        <div class="flex items-start justify-between gap-2">
-          <div class="min-w-0">
-            <div class="flex items-center gap-2">
-              <span class="font-display font-extrabold text-xs text-slate-900 dark:text-white truncate">${escapeHtml(title)}</span>
-              <span class="text-[10px] font-mono text-slate-400 shrink-0">${nowStr}</span>
-            </div>
-            <p class="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5 leading-snug">${escapeHtml(message)}</p>
-          </div>
-          <button onclick="this.parentElement.parentElement.remove()" class="text-slate-400 hover:text-slate-600 text-xs font-bold shrink-0">✕</button>
-        </div>
-      `;
-      container.prepend(el);
-      setTimeout(() => {
-        if (el.parentElement) el.remove();
-      }, 6000);
-    }
-
-    // ==================== THEME & AUTHENTICATION ====================
-    function applyTheme() {
-      const isDark = appState.theme === "dark";
-      document.documentElement.classList.toggle("dark", isDark);
-      const iconName = isDark ? "sun" : "moon";
-      const authWrap = document.getElementById("auth-theme-icon-wrap");
-      const appWrap = document.getElementById("app-theme-icon-wrap");
-      if (authWrap) authWrap.innerHTML = `<i data-lucide="${iconName}" class="w-4 h-4"></i>`;
-      if (appWrap) appWrap.innerHTML = `<i data-lucide="${iconName}" class="w-4 h-4"></i>`;
-      refreshIcons();
-    }
-
-    function toggleTheme() {
-      appState.theme = appState.theme === "dark" ? "light" : "dark";
-      saveState();
-      applyTheme();
-      if (appState.currentUser && appState.activeTab === "dashboard") {
-        renderCurrentView();
-      }
-    }
-
-    function switchAuthMode(mode) {
-      authMode = mode;
-      const loginBtn = document.getElementById("mode-tab-login");
-      const regBtn = document.getElementById("mode-tab-register");
-      const submitBtn = document.getElementById("auth-submit-btn");
-
-      if (loginBtn && regBtn) {
-        loginBtn.className = mode === "login"
-          ? "px-3 py-1.5 rounded-xl text-xs font-extrabold bg-indigo-600 text-white"
-          : "px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800";
-        regBtn.className = mode === "register"
-          ? "px-3 py-1.5 rounded-xl text-xs font-extrabold bg-indigo-600 text-white"
-          : "px-3 py-1.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800";
-      }
-      if (submitBtn) {
-        submitBtn.textContent = mode === "register" ? "Đăng Ký & Vào Hệ Thống" : "Đăng Nhập Vào Hệ Thống";
-      }
-      updateAuthRegisterVisibility();
-    }
-
-    function updateAuthRegisterVisibility() {
-      const nameGroup = document.getElementById("register-name-group");
-      if (nameGroup) {
-        nameGroup.classList.toggle("hidden", authMode !== "register");
-      }
-    }
-
-    function switchAuthRole(role) {
-      authRole = role;
-      const stuBtn = document.getElementById("role-tab-student");
-      const tchBtn = document.getElementById("role-tab-teacher");
-      const mgrBtn = document.getElementById("role-tab-manager");
-      const badge = document.getElementById("auth-role-badge");
-      const codeGroup = document.getElementById("teacher-code-group");
-      const codeLabel = document.getElementById("internal-code-label");
-      const regTab = document.getElementById("mode-tab-register");
-
-      const activeCls = "py-2.5 px-2 rounded-xl font-bold text-xs sm:text-sm bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm transition";
-      const idleCls = "py-2.5 px-2 rounded-xl font-bold text-xs sm:text-sm text-slate-600 dark:text-slate-400 transition";
-
-      if (stuBtn) stuBtn.className = role === "student" ? activeCls : idleCls;
-      if (tchBtn) tchBtn.className = role === "teacher" ? activeCls : idleCls;
-      if (mgrBtn) mgrBtn.className = role === "manager" ? activeCls : idleCls;
-
-      if (role === "student") {
-        if (badge) badge.textContent = "Học viên B1 PET";
-        if (codeGroup) codeGroup.classList.add("hidden");
-        if (regTab) regTab.classList.add("hidden");
-        switchAuthMode("login");
-      } else if (role === "teacher") {
-        if (badge) badge.textContent = "Giáo viên PET";
-        if (codeGroup) codeGroup.classList.remove("hidden");
-        if (codeLabel) codeLabel.innerHTML = `<i data-lucide="key-round" class="w-3.5 h-3.5"></i> Mã xác thực nội bộ Giáo viên`;
-        if (regTab) regTab.classList.remove("hidden");
-      } else {
-        if (badge) badge.textContent = "Manager Trung Tâm";
-        if (codeGroup) codeGroup.classList.remove("hidden");
-        if (codeLabel) codeLabel.innerHTML = `<i data-lucide="shield-check" class="w-3.5 h-3.5"></i> Mã xác thực Manager Trung Tâm`;
-        if (regTab) regTab.classList.remove("hidden");
-      }
-      updateAuthRegisterVisibility();
-      refreshIcons();
-    }
-
-    function handleAuthSubmit(event) {
-      event.preventDefault();
-      const nameInput = document.getElementById("auth-name")?.value.trim();
-      const emailInput = document.getElementById("auth-email")?.value.trim();
-      const passInput = document.getElementById("auth-password")?.value.trim();
-      const internalCode = document.getElementById("auth-teacher-code")?.value.trim();
-
-      if (authRole === "manager") {
-        if (internalCode !== MANAGER_SECRET_CODE) {
-          openModal(`<div class="space-y-3"><h3 class="font-display font-extrabold text-lg text-rose-600">Mã xác thực Manager không hợp lệ</h3><p class="text-xs text-slate-600 dark:text-slate-300">Mã xác thực nội bộ không chính xác. Vui lòng liên hệ quản trị viên hệ thống để được cấp mã.</p><button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold">Đóng</button></div>`);
-          return;
-        }
-        appState.currentUser = {
-          id: "mgr-" + (emailInput || "admin").toLowerCase(),
-          role: "manager",
-          name: nameInput || "Manager Trung Tâm",
-          email: emailInput
-        };
-        appState.activeTab = "manager-center";
-        saveState();
-        enterWorkspace();
-        return;
-      }
-
-      if (authRole === "teacher") {
-        if (internalCode !== TEACHER_SECRET_CODE) {
-          openModal(`<div class="space-y-3"><h3 class="font-display font-extrabold text-lg text-rose-600">Mã xác thực Giáo viên không hợp lệ</h3><p class="text-xs text-slate-600 dark:text-slate-300">Mã xác thực nội bộ không chính xác. Vui lòng liên hệ Manager trung tâm để được cấp mã.</p><button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold">Đóng</button></div>`);
-          return;
-        }
-        const matchedTeacher = (appState.teachersList || []).find(
-          t => t.email.toLowerCase() === (emailInput || "").toLowerCase()
-        );
-        if (matchedTeacher && matchedTeacher.password && passInput && matchedTeacher.password !== passInput) {
-          openModal(`<div class="space-y-3"><h3 class="font-display font-extrabold text-lg text-rose-600">Sai mật khẩu</h3><p class="text-xs text-slate-600 dark:text-slate-300">Mật khẩu giáo viên không khớp với dữ liệu hệ thống.</p><button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold">Đóng</button></div>`);
-          return;
-        }
-        const teacherName = nameInput || (matchedTeacher ? matchedTeacher.name : emailInput.split("@")[0]);
-        let teacherId = matchedTeacher ? matchedTeacher.id : ("tch-" + Date.now());
-        if (!matchedTeacher && emailInput) {
-          appState.teachersList = appState.teachersList || [];
-          appState.teachersList.unshift({
-            id: teacherId,
-            name: teacherName,
-            email: emailInput,
-            phone: "",
-            password: passInput || "",
-            specialty: "Cambridge PET 4 Kỹ Năng",
-            status: "Đang giảng dạy",
-            _updatedAt: Date.now()
-          });
-        }
-        appState.currentUser = {
-          id: teacherId,
-          role: "teacher",
-          name: teacherName,
-          email: emailInput
-        };
-        appState.activeTab = "teacher-dashboard";
-        saveState();
-        enterWorkspace();
-        return;
-      }
-
-      const matchedStudent = (appState.studentsList || []).find(
-        s => s.email.toLowerCase() === (emailInput || "").toLowerCase()
-      );
-      if (!matchedStudent) {
-        openModal(`<div class="space-y-3"><h3 class="font-display font-extrabold text-lg text-rose-600">Tài khoản chưa được khởi tạo</h3><p class="text-xs text-slate-600 dark:text-slate-300">Email học sinh chưa có trên hệ thống. Vui lòng liên hệ Giáo viên hoặc Manager trung tâm để cấp tài khoản.</p><button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold">Đóng</button></div>`);
-        return;
-      }
-      if (matchedStudent.password && passInput && matchedStudent.password !== passInput) {
-        openModal(`<div class="space-y-3"><h3 class="font-display font-extrabold text-lg text-rose-600">Sai mật khẩu</h3><p class="text-xs text-slate-600 dark:text-slate-300">Mật khẩu đăng nhập không chính xác.</p><button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold">Đóng</button></div>`);
-        return;
-      }
-
-      appState.studentProfile.name = matchedStudent.name;
-      appState.studentProfile.email = matchedStudent.email;
-      appState.studentProfile.phone = matchedStudent.phone || "";
-      appState.studentProfile.password = matchedStudent.password || "";
-      appState.studentProfile.classId = matchedStudent.classId || "";
-      appState.studentProfile.xp = matchedStudent.xp || 0;
-      appState.studentProfile.skills = { ...matchedStudent.skills };
-      if (matchedStudent.skinId) appState.studentProfile.skinId = matchedStudent.skinId;
-      if (matchedStudent.botId) appState.studentProfile.botId = matchedStudent.botId;
-
-      appState.currentUser = {
-        id: matchedStudent.id,
-        role: "student",
-        name: appState.studentProfile.name,
-        email: appState.studentProfile.email
-      };
-      appState.activeTab = "dashboard";
-      processDailyLoginStreak();
-      saveState();
-      enterWorkspace();
-
-      const pendingDeadlines = getPendingDeadlinesList();
-      if (pendingDeadlines.length > 0) {
-        const first = pendingDeadlines[0];
-        showToast(
-          `⏰ Nhắc Deadline (${first.kind})`,
-          `"${first.title}" — Hạn nộp: ${first.due}. Hãy hoàn thành đúng hạn nhé!`,
-          "deadline",
-          true
-        );
-      }
-    }
-
-    function logoutUser() {
-      stopCambridgeAudio();
-      appState.currentUser = null;
-      saveState();
-      document.getElementById("app-shell").classList.add("hidden");
-      document.getElementById("floating-companion").classList.add("hidden");
-      document.getElementById("auth-screen").classList.remove("hidden");
-      refreshIcons();
-    }
-
-    function renderNavigation() {
-      const role = appState.currentUser?.role;
-      const navList = role === "manager" ? MANAGER_NAV : role === "teacher" ? TEACHER_NAV : STUDENT_NAV;
-      const sideNav = document.getElementById("sidebar-nav");
-      const mobNav = document.getElementById("mobile-bottom-nav");
-
-      if (sideNav) {
-        sideNav.innerHTML = navList.map(item => `
-          <button onclick="navigateTo('${item.id}')" data-nav="${item.id}" class="nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
-            <i data-lucide="${item.icon}" class="w-4 h-4"></i>
-            <span>${item.label}</span>
-          </button>
-        `).join("");
-      }
-
-      if (mobNav) {
-        mobNav.innerHTML = navList.map(item => `
-          <button onclick="navigateTo('${item.id}')" data-mob-nav="${item.id}" class="mob-nav-item shrink-0 flex flex-col items-center justify-center gap-1 px-2.5 py-1.5 rounded-2xl text-[10px] font-bold text-slate-500 min-w-[66px] transition">
-            <span class="mob-nav-pill w-8 h-6 rounded-xl flex items-center justify-center transition">
-              <i data-lucide="${item.icon}" class="w-4 h-4"></i>
-            </span>
-            <span class="truncate max-w-[68px]">${item.label.split(" ")[0]}</span>
-          </button>
-        `).join("");
-      }
-      refreshIcons();
-    }
-
-    function renderSidebarUserCard() {
-      const card = document.getElementById("sidebar-user-card");
-      if (!card) return;
-
-      const role = appState.currentUser?.role;
-      if (isStaffRole(role)) {
-        const isMgr = role === "manager";
-        card.innerHTML = `
-          <div class="flex items-center gap-3">
-            <div class="w-11 h-11 rounded-2xl bg-gradient-to-tr ${isMgr ? "from-indigo-600 to-cyan-500" : "from-amber-500 to-rose-600"} text-white flex items-center justify-center font-display font-extrabold text-base">${isMgr ? "MG" : "GV"}</div>
-            <div class="min-w-0">
-              <div class="font-display font-bold text-sm truncate">${escapeHtml(appState.currentUser.name)}</div>
-              <div class="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold">● ${isMgr ? "Manager Trung Tâm" : "Giáo viên nội bộ"}</div>
-            </div>
-          </div>
-        `;
-        return;
-      }
-
-      const sp = appState.studentProfile;
-      const skin = SKIN_CATALOG.find(s => s.id === sp.skinId) || SKIN_CATALOG[1];
-      const bot = BOT_CATALOG.find(b => b.id === sp.botId) || BOT_CATALOG[0];
-      const lvl = calcLevel(sp.xp);
-      const step = getXpPerLevel();
-      const progressPct = Math.min(100, Math.round((((Number(sp.xp) || 0) % step) / step) * 100));
-
-      card.innerHTML = `
-        <div class="flex items-center gap-3">
-          <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr ${skin.ring} p-0.5 shrink-0">
-            <div class="w-full h-full rounded-[14px] bg-white dark:bg-slate-900 flex items-center justify-center text-2xl">${skin.emoji}</div>
-          </div>
-          <div class="min-w-0 flex-1">
-            <div class="font-display font-bold text-sm truncate">${escapeHtml(sp.name)}</div>
-            <div class="text-[11px] text-indigo-600 dark:text-indigo-400 font-extrabold">Lv.${lvl} (${escapeHtml(getLevelTitle(lvl))}) • ${sp.xp} XP</div>
-          </div>
-        </div>
-        <div class="mt-3 space-y-1">
-          <div class="flex justify-between text-[10px] font-bold text-slate-500">
-            <span>Tiến độ Level ${lvl + 1}</span>
-            <span>${progressPct}%</span>
-          </div>
-          <div class="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-            <div class="h-full bg-gradient-to-r from-indigo-600 to-violet-500 rounded-full transition-all duration-500" style="width:${progressPct}%"></div>
-          </div>
-        </div>
-        <button onclick="openCompanionCustomizerModal()" class="mt-3 w-full py-1.5 px-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 text-[11px] font-bold flex items-center justify-between transition">
-          <span>${bot.emoji} Bot: ${escapeHtml(bot.name)}</span>
-          <span class="text-indigo-600 dark:text-indigo-400">Đổi Skin/Bot</span>
-        </button>
-      `;
-    }
-
-    function enterWorkspace() {
-      document.getElementById("auth-screen").classList.add("hidden");
-      document.getElementById("app-shell").classList.remove("hidden");
-
-      const role = appState.currentUser?.role;
-      const isStaff = isStaffRole(role);
-      document.getElementById("sidebar-role-label").textContent =
-        role === "manager" ? "Manager Điều Hành Trung Tâm" :
-        role === "teacher" ? "Giảng viên & Quản trị PET" : "Học viên Cambridge B1";
-      const statsPill = document.getElementById("header-student-stats");
-      if (statsPill) {
-        statsPill.classList.toggle("hidden", isStaff);
-        statsPill.classList.toggle("sm:flex", !isStaff);
-      }
-      document.getElementById("floating-companion").classList.toggle("hidden", isStaff);
-
-      if (!isStaff) {
-        syncCompanionWidget();
-      }
-
-      renderNavigation();
-      renderSidebarUserCard();
-      updateHeaderStats();
-      updateNotificationBadge();
-      renderDeadlineBanner();
-      const fallbackTab = role === "manager" ? "manager-center" : role === "teacher" ? "teacher-dashboard" : "dashboard";
-      navigateTo(appState.activeTab || fallbackTab);
-    }
-
-    function navigateTo(tabId) {
-      stopCambridgeAudio();
-      appState.activeTab = tabId;
-      saveState();
-
-      document.querySelectorAll(".nav-item").forEach(btn => {
-        const active = btn.getAttribute("data-nav") === tabId;
-        btn.className = active
-          ? "nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-extrabold bg-indigo-600 text-white shadow-md shadow-indigo-500/25 transition"
-          : "nav-item w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition";
-      });
-
-      document.querySelectorAll(".mob-nav-item").forEach(btn => {
-        const active = btn.getAttribute("data-mob-nav") === tabId;
-        btn.className = active
-          ? "mob-nav-item shrink-0 flex flex-col items-center justify-center gap-1 px-2.5 py-1.5 rounded-2xl text-[10px] font-extrabold text-indigo-600 dark:text-indigo-400 min-w-[66px] transition"
-          : "mob-nav-item shrink-0 flex flex-col items-center justify-center gap-1 px-2.5 py-1.5 rounded-2xl text-[10px] font-bold text-slate-500 min-w-[66px] transition";
-        const pill = btn.querySelector(".mob-nav-pill");
-        if (pill) {
-          pill.className = active
-            ? "mob-nav-pill w-8 h-6 rounded-xl bg-indigo-600 text-white shadow-sm flex items-center justify-center transition"
-            : "mob-nav-pill w-8 h-6 rounded-xl flex items-center justify-center transition";
-        }
-      });
-
-      renderCurrentView();
     }
 
     function renderCurrentView() {
@@ -1782,1126 +1419,542 @@
       if (!container) return;
 
       const tab = appState.activeTab || "dashboard";
-      const pageMeta = {
-        "dashboard": ["Tổng Quan & Lộ Trình PET", "• Theo dõi điểm Cambridge Scale 120–170, nhiệm vụ ngày & đổi quà"],
-        "reading": ["Phòng Thi Reading PET", "• Luyện đọc hiểu, upload bài làm & chấm giải thích chi tiết"],
-        "listening": ["Phòng Thi Listening PET", "• Nghe tối đa 2 lượt chuẩn phòng thi Cambridge & nộp bài"],
-        "writing": ["Phòng Thi Writing PET", "• Viết Email & Article ~100 từ hoặc upload ảnh/tệp bài viết"],
-        "speaking": ["Phòng Thi Speaking AI", "• Thu âm giọng nói hoặc upload file ghi âm & đánh giá band B1"],
-        "assignments": ["Bài Tập Về Nhà", "• Tải tệp đề bài & nộp file bài làm đồng bộ tới giáo viên"],
-        "courses": ["Khóa Học & Kho Học Liệu", "• Hoàn thành học liệu để tích điểm năng lực cuối khóa"],
-        "rewards": ["Đổi Quà & Huy Hiệu", "• Sử dụng XP tích lũy để đổi phần quà & mở khóa danh hiệu"],
-        "student-settings": ["Cài Đặt Cá Nhân", "• Cập nhật thông tin liên hệ & mật khẩu tài khoản"],
-        "teacher-dashboard": ["Quản Lý Lớp & Sổ Điểm", "• Đăng ký tài khoản học sinh, chỉnh sửa điểm, level & xuất Excel"],
-        "teacher-attendance": ["Điểm Danh & Báo Cáo", "• Điểm danh lớp học, chỉnh sửa/xóa lượt điểm danh & đồng bộ Manager"],
-        "teacher-exams": ["Soạn & Sửa Đề Thi", "• Tạo phòng thi mới (upload file đề hoặc nhập prompt) đồng bộ tức thì"],
-        "teacher-materials": ["Kho Học Liệu & Khóa Học", "• Upload tài liệu & xây dựng khóa học tích điểm năng lực"],
-        "teacher-grading": ["Giao & Chấm Bài Tập", "• Giao BTVN bằng file, nhắc deadline & chấm điểm bài nộp"],
-        "teacher-rewards": ["Quản Lý Đổi Quà & Badge", "• Thiết lập phần quà XP, chỉnh sửa Badge, Level & nhiệm vụ"],
-        "manager-center": ["Trung Tâm Điều Hành Manager", "• Quản lý lớp học, phân công giáo viên, xếp lịch & toàn bộ tài khoản"]
-      };
+      const navItem = getNavItemsForRole().find(n => n.id === tab);
+      if (titleEl && navItem) titleEl.textContent = navItem.label;
+      if (subEl) subEl.textContent = `• ${getClassNameById(appState.studentProfile?.classId) || "Cambridge B1 PET"}`;
 
-      const [t, s] = pageMeta[tab] || ["Hilng PET Studio", "• Hệ thống luyện thi Cambridge B1 Preliminary"];
-      if (titleEl) titleEl.textContent = t;
-      if (subEl) subEl.textContent = s;
-
-      if (tab === "dashboard") renderStudentDashboard(container);
-      else if (tab === "reading") renderReadingSimulator(container);
-      else if (tab === "listening") renderListeningSimulator(container);
-      else if (tab === "writing") renderWritingSimulator(container);
-      else if (tab === "speaking") renderSpeakingSimulator(container);
-      else if (tab === "assignments") renderAssignmentsView(container);
-      else if (tab === "courses") renderCoursesAndResourcesView(container);
-      else if (tab === "rewards") renderRewardsStoreView(container);
-      else if (tab === "student-settings") renderStudentSettingsView(container);
-      else if (tab === "teacher-dashboard") renderTeacherDashboard(container);
-      else if (tab === "teacher-attendance") renderAttendanceAndReportView(container);
-      else if (tab === "teacher-exams") renderTeacherExamStudio(container);
-      else if (tab === "teacher-materials") renderTeacherMaterialsView(container);
-      else if (tab === "teacher-grading") renderTeacherGradingView(container);
-      else if (tab === "teacher-rewards") renderTeacherRewardsView(container);
-      else if (tab === "manager-center") renderManagerCenterView(container);
-      else renderStudentDashboard(container);
-
-      refreshIcons();
+      if (tab === "manager-center") {
+        renderManagerCenterView(container);
+      } else if (tab === "teacher-dashboard") {
+        renderTeacherDashboard(container);
+      } else if (tab === "teacher-attendance") {
+        renderAttendanceAndReportView(container);
+      } else if (tab === "teacher-exams") {
+        renderTeacherExamStudio(container);
+      } else if (tab === "teacher-materials") {
+        renderTeacherMaterialsView(container);
+      } else if (tab === "teacher-grading") {
+        renderTeacherGradingView(container);
+      } else if (tab === "teacher-rewards") {
+        renderTeacherRewardsView(container);
+      } else {
+        renderStudentPortalView(container, tab);
+      }
     }
 
-    // ==================== 1. STUDENT DASHBOARD & ROADMAP ====================
-    function renderStudentDashboard(container) {
-      const sp = appState.studentProfile;
-      const skin = SKIN_CATALOG.find(s => s.id === sp.skinId) || SKIN_CATALOG[1];
-      const bot = BOT_CATALOG.find(b => b.id === sp.botId) || BOT_CATALOG[0];
-      const overall = calcOverallScore(sp.skills);
-      const gradeInfo = getCambridgeGradeLabel(overall);
-      const teacherRooms = (appState.exams || []).filter(e => e.isTeacherRoom);
-      const allBadges = getAllBadges();
-      const lvl = calcLevel(sp.xp);
+    function renderStudentPortalView(container, tab) {
+      const prof = appState.studentProfile || createDefaultState().studentProfile;
+      const skills = prof.skills || { reading: 140, listening: 140, writing: 140, speaking: 140 };
+      const overall = calcOverallScore(skills);
+      const grade = getCambridgeGradeBadge(overall);
+      const lv = calcLevel(prof.xp || 0);
+
+      if (tab === "assignments") {
+        const list = appState.assignments || [];
+        container.innerHTML = `
+          <div class="glass-panel rounded-3xl p-6 space-y-4">
+            <h2 class="font-display font-extrabold text-xl">📝 Bài Tập Về Nhà (${list.length})</h2>
+            ${list.length === 0 ? `<p class="text-xs text-slate-500">Hiện chưa có bài tập nào được giao.</p>` : list.map(asg => `
+              <div class="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 space-y-2 text-xs">
+                <div class="flex items-center justify-between gap-2">
+                  <div class="font-display font-bold text-sm">${escapeHtml(asg.title)}</div>
+                  <span class="px-2.5 py-1 rounded-full font-extrabold bg-indigo-500/15 text-indigo-600">Hạn: ${escapeHtml(asg.dueDate)}</span>
+                </div>
+                <p class="text-slate-600 dark:text-slate-300">${escapeHtml(asg.description || "")}</p>
+                ${asg.grade ? `<div class="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-bold">Điểm: ${escapeHtml(asg.grade)} — ${escapeHtml(asg.feedback || "")}</div>` : ""}
+              </div>
+            `).join("")}
+          </div>
+        `;
+        return;
+      }
+
+      if (tab === "rewards") {
+        const rewards = appState.rewards || [];
+        const badges = getAllBadges();
+        container.innerHTML = `
+          <div class="space-y-6">
+            <div class="glass-panel rounded-3xl p-6 flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h2 class="font-display font-extrabold text-xl">🎁 Cửa Hàng Đổi Quà & Huy Hiệu</h2>
+                <p class="text-xs text-slate-500">Số dư hiện tại: <strong>${prof.xp || 0} XP</strong> • Level ${lv} (${escapeHtml(getLevelTitle(lv))})</p>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              ${rewards.length === 0 ? `<div class="glass-panel rounded-2xl p-6 text-xs text-slate-500 col-span-full">Chưa có phần quà nào được mở trong cửa hàng.</div>` : rewards.map(rw => {
+                const canClaim = !rw.locked && (rw.stock || 0) > 0 && (prof.xp || 0) >= (rw.cost || 0);
+                return `
+                  <div class="glass-panel rounded-2xl p-5 flex flex-col justify-between gap-3 text-xs">
+                    <div>
+                      <div class="text-2xl mb-1">${rw.icon || "🎁"}</div>
+                      <div class="font-display font-extrabold text-base">${escapeHtml(rw.title)}</div>
+                      <div class="text-slate-500 mt-1">Chi phí: <strong>${rw.cost} XP</strong> • Còn ${rw.stock} slot</div>
+                    </div>
+                    <button type="button" ${canClaim ? `onclick="claimRewardItem('${rw.id}')"` : "disabled"} class="w-full py-2.5 rounded-xl font-bold ${canClaim ? "bg-indigo-600 hover:bg-indigo-700 text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed"}">
+                      ${rw.locked ? "🔒 Đang khóa" : rw.stock <= 0 ? "Hết slot" : (prof.xp || 0) < rw.cost ? "Chưa đủ XP" : "Đổi Quà Ngay"}
+                    </button>
+                  </div>
+                `;
+              }).join("")}
+            </div>
+
+            <div class="glass-panel rounded-3xl p-6 space-y-3">
+              <h3 class="font-display font-extrabold text-lg">🏅 Bộ Huy Hiệu (${badges.length})</h3>
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                ${badges.map(b => {
+                  const unlocked = isBadgeUnlockedForStudent(b);
+                  return `
+                    <div class="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 flex items-center gap-3 text-xs ${unlocked ? "" : "opacity-60"}">
+                      <span class="text-2xl">${b.icon || "🏅"}</span>
+                      <div>
+                        <div class="font-bold">${escapeHtml(b.title)}</div>
+                        <div class="text-slate-500">${escapeHtml(b.desc)} • ${b.reqXp} XP</div>
+                      </div>
+                    </div>
+                  `;
+                }).join("")}
+              </div>
+            </div>
+          </div>
+        `;
+        return;
+      }
 
       container.innerHTML = `
         <div class="space-y-6">
-          <!-- Hero Welcome & Companion Banner -->
-          <div class="glass-panel rounded-3xl p-5 sm:p-7 flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
-            <div class="flex items-center gap-4">
-              <div class="w-16 h-16 rounded-3xl bg-gradient-to-tr ${skin.ring} p-0.5 shrink-0 shadow-lg">
-                <div class="w-full h-full rounded-[22px] bg-white dark:bg-slate-900 flex items-center justify-center text-3xl">${skin.emoji}</div>
-              </div>
-              <div class="space-y-1">
-                <div class="flex flex-wrap items-center gap-1.5">
-                  <span class="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-indigo-500/15 text-indigo-600 dark:text-indigo-300">
-                    Lớp: ${escapeHtml(getClassNameById(sp.classId))} • 🔥 ${sp.streak} ngày
-                  </span>
-                  <span class="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-500/15 text-amber-700 dark:text-amber-300">
-                    ⚡ ${sp.xp} XP • Lv.${lvl} (${escapeHtml(getLevelTitle(lvl))})
-                  </span>
-                </div>
-                <h2 class="font-display font-extrabold text-xl sm:text-2xl">Xin chào, ${escapeHtml(sp.name || "Học viên PET")}!</h2>
-                <p class="text-xs text-slate-600 dark:text-slate-400">${bot.emoji} <strong>${escapeHtml(bot.name)}:</strong> ${escapeHtml(bot.tip)}</p>
-              </div>
+          <div class="glass-panel rounded-3xl p-6 flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <span class="px-2.5 py-1 rounded-full text-[11px] font-extrabold ${grade.cls}">${grade.label}</span>
+              <h2 class="font-display font-extrabold text-2xl mt-2">Xin chào, ${escapeHtml(prof.name || appState.currentUser?.name || "Học viên")}!</h2>
+              <p class="text-xs text-slate-500 mt-1">Lớp: <strong>${escapeHtml(getClassNameById(prof.classId))}</strong> • Level ${lv} (${escapeHtml(getLevelTitle(lv))}) • ${prof.xp || 0} XP</p>
             </div>
-
-            <div class="flex flex-wrap gap-2 w-full md:w-auto">
-              <button onclick="openCompanionCustomizerModal()" class="flex-1 md:flex-initial px-4 py-2.5 rounded-2xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-700 dark:text-indigo-300 font-bold text-xs transition">
-                🎨 Đổi Skin & Bot
-              </button>
-              <button onclick="navigateTo('rewards')" class="flex-1 md:flex-initial px-4 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-lg transition">
-                🎁 Cửa Hàng Đổi Quà
-              </button>
-              <button onclick="navigateTo('reading')" class="flex-1 md:flex-initial px-4 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold text-xs shadow-lg transition">
-                🚀 Vào Luyện Đề
-              </button>
+            <div class="text-right">
+              <div class="text-xs text-slate-500 font-bold">Điểm ước lượng PET</div>
+              <div class="font-display font-extrabold text-4xl text-indigo-600 dark:text-indigo-400">${overall}</div>
             </div>
           </div>
 
-          <!-- Quick 4-Skill Launcher Cards -->
-          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-            <button onclick="navigateTo('reading')" class="mobile-app-card glass-panel rounded-2xl p-4 text-left flex items-center gap-3 border-l-4 border-indigo-600">
-              <div class="w-10 h-10 rounded-xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 flex items-center justify-center shrink-0">
-                <i data-lucide="book-open" class="w-5 h-5"></i>
-              </div>
-              <div class="min-w-0">
-                <div class="font-display font-extrabold text-sm">Reading</div>
-                <div class="text-[11px] text-slate-500 truncate">Scale: <strong>${sp.skills.reading}</strong> • Luyện đề</div>
-              </div>
-            </button>
-            <button onclick="navigateTo('listening')" class="mobile-app-card glass-panel rounded-2xl p-4 text-left flex items-center gap-3 border-l-4 border-sky-500">
-              <div class="w-10 h-10 rounded-xl bg-sky-500/15 text-sky-600 dark:text-sky-300 flex items-center justify-center shrink-0">
-                <i data-lucide="headphones" class="w-5 h-5"></i>
-              </div>
-              <div class="min-w-0">
-                <div class="font-display font-extrabold text-sm">Listening</div>
-                <div class="text-[11px] text-slate-500 truncate">Scale: <strong>${sp.skills.listening}</strong> • 2 lượt nghe</div>
-              </div>
-            </button>
-            <button onclick="navigateTo('writing')" class="mobile-app-card glass-panel rounded-2xl p-4 text-left flex items-center gap-3 border-l-4 border-violet-600">
-              <div class="w-10 h-10 rounded-xl bg-violet-500/15 text-violet-600 dark:text-violet-300 flex items-center justify-center shrink-0">
-                <i data-lucide="pen-tool" class="w-5 h-5"></i>
-              </div>
-              <div class="min-w-0">
-                <div class="font-display font-extrabold text-sm">Writing</div>
-                <div class="text-[11px] text-slate-500 truncate">Scale: <strong>${sp.skills.writing}</strong> • ~100 từ</div>
-              </div>
-            </button>
-            <button onclick="navigateTo('speaking')" class="mobile-app-card glass-panel rounded-2xl p-4 text-left flex items-center gap-3 border-l-4 border-emerald-500">
-              <div class="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 flex items-center justify-center shrink-0">
-                <i data-lucide="mic" class="w-5 h-5"></i>
-              </div>
-              <div class="min-w-0">
-                <div class="font-display font-extrabold text-sm">Speaking AI</div>
-                <div class="text-[11px] text-slate-500 truncate">Scale: <strong>${sp.skills.speaking}</strong> • Thu âm AI</div>
-              </div>
-            </button>
-          </div>
-
-          ${teacherRooms.length > 0 ? `
-            <div class="glass-panel rounded-3xl p-6 space-y-4 border-l-4 border-amber-500">
-              <div class="flex items-center justify-between">
-                <div>
-                  <h3 class="font-display font-extrabold text-lg">🆕 Phòng Thi Mới Từ Giáo Viên (${teacherRooms.length})</h3>
-                  <p class="text-xs text-slate-500">Đề thi được giáo viên đồng bộ trực tiếp lên phòng luyện tập của bạn</p>
-                </div>
-              </div>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                ${teacherRooms.map(ex => `
-                  <div class="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 flex items-center justify-between gap-3 text-xs">
-                    <div class="min-w-0">
-                      <span class="px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 font-extrabold">${escapeHtml(ex.skill)}</span>
-                      <div class="font-display font-bold text-sm mt-1 truncate">${escapeHtml(ex.title)}</div>
-                      <div class="text-[11px] text-slate-500">${escapeHtml(ex.partFormat || "")}</div>
-                    </div>
-                    <button onclick="openTeacherExamRoom('${ex.id}', '${ex.skill}')" class="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shrink-0">
-                      Vào thi
-                    </button>
-                  </div>
-                `).join("")}
-              </div>
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="glass-panel rounded-2xl p-4">
+              <div class="text-xs font-bold text-slate-500">Reading</div>
+              <div class="font-display font-extrabold text-2xl mt-1">${skills.reading}</div>
             </div>
-          ` : ""}
-
-          <!-- Cambridge Scale Overview + Radar Chart -->
-          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div class="lg:col-span-5 glass-panel rounded-3xl p-6 flex flex-col justify-between space-y-4">
-              <div class="flex items-center justify-between">
-                <div>
-                  <div class="text-xs font-extrabold uppercase text-slate-500">Cambridge English Scale</div>
-                  <div class="font-display font-extrabold text-3xl text-indigo-600 dark:text-indigo-400 mt-1">${overall} <span class="text-sm font-bold text-slate-400">/ 170</span></div>
-                </div>
-                <span class="px-3 py-1.5 rounded-xl text-xs font-extrabold ${gradeInfo.cls}">${gradeInfo.label}</span>
-              </div>
-
-              <div class="h-56 relative">
-                <canvas id="pet-radar-chart"></canvas>
-              </div>
-
-              <div class="grid grid-cols-4 gap-2 text-center text-xs">
-                <div class="p-2 rounded-xl bg-slate-100/80 dark:bg-slate-900/80"><div class="text-[10px] text-slate-500">Reading</div><strong>${sp.skills.reading}</strong></div>
-                <div class="p-2 rounded-xl bg-slate-100/80 dark:bg-slate-900/80"><div class="text-[10px] text-slate-500">Listening</div><strong>${sp.skills.listening}</strong></div>
-                <div class="p-2 rounded-xl bg-slate-100/80 dark:bg-slate-900/80"><div class="text-[10px] text-slate-500">Writing</div><strong>${sp.skills.writing}</strong></div>
-                <div class="p-2 rounded-xl bg-slate-100/80 dark:bg-slate-900/80"><div class="text-[10px] text-slate-500">Speaking</div><strong>${sp.skills.speaking}</strong></div>
-              </div>
+            <div class="glass-panel rounded-2xl p-4">
+              <div class="text-xs font-bold text-slate-500">Listening</div>
+              <div class="font-display font-extrabold text-2xl mt-1">${skills.listening}</div>
             </div>
-
-            <div class="lg:col-span-7 glass-panel rounded-3xl p-6 space-y-4">
-              <div>
-                <h3 class="font-display font-extrabold text-lg">Lộ Trình Chinh Phục Cambridge PET (5 Chặng)</h3>
-                <p class="text-xs text-slate-500">Hệ thống tự động mở khóa chặng theo điểm Overall Cambridge Scale của bạn</p>
-              </div>
-              <div class="space-y-2.5">
-                ${CAMBRIDGE_STAGES.map(st => {
-                  const reached = overall >= st.minScore;
-                  const current = overall >= st.minScore && overall <= st.maxScore;
-                  return `
-                    <div class="p-3.5 rounded-2xl border ${current ? "border-indigo-500 bg-indigo-500/10" : reached ? "border-emerald-500/40 bg-emerald-500/5" : "border-slate-200 dark:border-slate-800 opacity-70"} flex items-center justify-between gap-3 text-xs">
-                      <div>
-                        <div class="font-display font-extrabold text-sm">Chặng ${st.stage}: ${escapeHtml(st.title)}</div>
-                        <div class="text-slate-500">${escapeHtml(st.desc)}</div>
-                      </div>
-                      <span class="px-2.5 py-1 rounded-xl font-extrabold shrink-0 ${reached ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" : "bg-slate-200 dark:bg-slate-800 text-slate-500"}">
-                        ${st.minScore}–${st.maxScore}
-                      </span>
-                    </div>
-                  `;
-                }).join("")}
-              </div>
+            <div class="glass-panel rounded-2xl p-4">
+              <div class="text-xs font-bold text-slate-500">Writing</div>
+              <div class="font-display font-extrabold text-2xl mt-1">${skills.writing}</div>
             </div>
-          </div>
-
-          <!-- Daily Quests + Rewards & Badges Area -->
-          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div class="lg:col-span-6 glass-panel rounded-3xl p-6 space-y-4">
-              <div class="flex items-center justify-between">
-                <h3 class="font-display font-extrabold text-lg">🎯 Nhiệm Vụ Thường Ngày Tích XP</h3>
-                <span class="text-xs font-bold text-indigo-600">${appState.quests.filter(q => q.completed).length}/${appState.quests.length} hoàn thành</span>
-              </div>
-              <div class="space-y-2.5">
-                ${appState.quests.map(q => `
-                  <div class="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 flex items-center justify-between gap-3 text-xs">
-                    <div class="min-w-0">
-                      <div class="font-bold ${q.completed ? "line-through text-slate-400" : ""}">${escapeHtml(q.title)}</div>
-                      <div class="text-[11px] text-amber-600 font-extrabold">+${q.xp} XP • Kỹ năng ${escapeHtml(q.skill)}</div>
-                    </div>
-                    <button onclick="navigateTo('${q.skill.toLowerCase()}')" class="px-3 py-1.5 rounded-xl font-bold shrink-0 ${q.completed ? "bg-emerald-500/15 text-emerald-700" : "bg-indigo-600 text-white"}">
-                      ${q.completed ? "✓ Xong" : "Làm ngay"}
-                    </button>
-                  </div>
-                `).join("")}
-              </div>
-            </div>
-
-            <div class="lg:col-span-6 glass-panel rounded-3xl p-6 space-y-4">
-              <div class="flex items-center justify-between">
-                <h3 class="font-display font-extrabold text-lg">🎁 Khu Vực Đổi Quà & Huy Hiệu</h3>
-                <button onclick="navigateTo('rewards')" class="px-3 py-1.5 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-300 text-xs font-extrabold hover:bg-amber-500/25 transition">
-                  Mở cửa hàng đổi quà →
-                </button>
-              </div>
-              <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                ${allBadges.slice(0, 3).map(b => {
-                  const unlocked = isBadgeUnlockedForStudent(b);
-                  return `
-                    <div class="p-3 rounded-2xl border text-center space-y-1 ${unlocked ? "border-amber-400/50 bg-amber-500/10" : "border-slate-200 dark:border-slate-800 opacity-60"}">
-                      <div class="text-2xl">${b.icon}</div>
-                      <div class="font-bold text-xs truncate">${escapeHtml(b.title)}</div>
-                      <div class="text-[10px] font-bold ${unlocked ? "text-emerald-600" : "text-slate-400"}">${unlocked ? "✓ Đã mở" : `${b.reqXp} XP`}</div>
-                    </div>
-                  `;
-                }).join("")}
-              </div>
-              ${appState.rewards.length > 0 ? `
-                <div class="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-                  ${appState.rewards.slice(0, 3).map(rw => `
-                    <div class="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900 flex items-center justify-between text-xs">
-                      <span class="font-bold">${rw.icon || "🎁"} ${escapeHtml(rw.title)} (${rw.cost} XP • Còn ${rw.stock})</span>
-                      <button onclick="redeemReward('${rw.id}')" ${rw.locked || rw.stock <= 0 || sp.xp < rw.cost ? "disabled" : ""} class="px-3 py-1 rounded-lg bg-amber-500 disabled:opacity-45 text-white font-bold">
-                        Đổi ngay
-                      </button>
-                    </div>
-                  `).join("")}
-                </div>
-              ` : `<div class="text-xs text-slate-500 pt-2">Cửa hàng đổi quà sẵn sàng hiển thị phần thưởng từ giáo viên & trung tâm.</div>`}
+            <div class="glass-panel rounded-2xl p-4">
+              <div class="text-xs font-bold text-slate-500">Speaking</div>
+              <div class="font-display font-extrabold text-2xl mt-1">${skills.speaking}</div>
             </div>
           </div>
         </div>
       `;
-
-      renderPetRadarChart();
     }
 
-    function openTeacherExamRoom(examId, skill) {
-      const sk = (skill || "Reading").toLowerCase();
-      if (sk === "reading") selectedReadingExamId = examId;
-      else if (sk === "listening") { selectedListeningExamId = examId; listeningPlayCount = 0; }
-      else if (sk === "writing") selectedWritingExamId = examId;
-      else if (sk === "speaking") selectedSpeakingExamId = examId;
-      navigateTo(["reading", "listening", "writing", "speaking"].includes(sk) ? sk : "reading");
-    }
-
-    function renderPetRadarChart() {
-      const canvas = document.getElementById("pet-radar-chart");
-      if (!canvas || typeof Chart === "undefined") return;
-      if (radarChartInstance) radarChartInstance.destroy();
-      const sp = appState.studentProfile;
-      const isDark = appState.theme === "dark";
-      radarChartInstance = new Chart(canvas, {
-        type: "radar",
-        data: {
-          labels: ["Reading", "Listening", "Writing", "Speaking"],
-          datasets: [{
-            label: "Cambridge Scale",
-            data: [sp.skills.reading, sp.skills.listening, sp.skills.writing, sp.skills.speaking],
-            backgroundColor: "rgba(79, 70, 229, 0.22)",
-            borderColor: "#4f46e5",
-            pointBackgroundColor: "#4f46e5",
-            borderWidth: 2
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          scales: {
-            r: {
-              min: 110,
-              max: 170,
-              ticks: { stepSize: 15, display: false },
-              grid: { color: isDark ? "rgba(148,163,184,0.2)" : "rgba(100,116,139,0.2)" },
-              pointLabels: { color: isDark ? "#cbd5e1" : "#334155", font: { weight: "bold", size: 11 } }
-            }
-          },
-          plugins: { legend: { display: false } }
-        }
+    function claimRewardItem(rewardId) {
+      const rw = (appState.rewards || []).find(r => r.id === rewardId);
+      const prof = appState.studentProfile;
+      if (!rw || !prof || rw.locked || (rw.stock || 0) <= 0 || (prof.xp || 0) < (rw.cost || 0)) return;
+      prof.xp = (Number(prof.xp) || 0) - Number(rw.cost || 0);
+      rw.stock = Math.max(0, Number(rw.stock || 0) - 1);
+      rw._updatedAt = Date.now();
+      appState.rewardClaims = appState.rewardClaims || [];
+      appState.rewardClaims.unshift({
+        id: "clm-" + Date.now(),
+        studentName: prof.name || appState.currentUser?.name || "Học viên",
+        className: getClassNameById(prof.classId),
+        rewardTitle: rw.title,
+        rewardIcon: rw.icon || "🎁",
+        cost: rw.cost,
+        delivered: false,
+        createdAt: new Date().toLocaleString("vi-VN"),
+        _updatedAt: Date.now()
       });
+      saveState();
+      updateHeaderStats();
+      renderCurrentView();
+      refreshIcons();
+      showToast("Đổi quà thành công!", `Bạn đã đổi "${rw.title}" (-${rw.cost} XP).`, "success", true);
     }
 
-    function openCompanionCustomizerModal() {
-      const sp = appState.studentProfile;
+    function renderTeacherDashboard(container) {
+      const students = appState.studentsList || [];
+      const classes = appState.classesList || [];
+      const filterCls = document.getElementById("tch-filter-class")?.value || "";
+      const filteredStudents = filterCls ? students.filter(s => s.classId === filterCls) : students;
+
+      container.innerHTML = `
+        <div class="space-y-6">
+          <div class="glass-panel rounded-3xl p-6 flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 class="font-display font-extrabold text-xl">👥 Quản Lý Lớp Học, Tài Khoản Học Sinh & Sổ Điểm PET</h2>
+              <p class="text-xs text-slate-500">Tạo tài khoản học sinh, phân lớp, cập nhật điểm 4 kỹ năng và XP / Level theo thời gian thực</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <select id="tch-filter-class" onchange="renderTeacherDashboard(document.getElementById('main-content')); refreshIcons();" class="px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold">
+                <option value="">Tất cả lớp (${students.length})</option>
+                ${classes.map(c => `<option value="${c.id}" ${filterCls === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}
+              </select>
+              <button type="button" onclick="openTeacherRegisterStudentModal()" class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md">
+                + Tạo Tài Khoản Học Sinh
+              </button>
+              <button type="button" onclick="exportStudentsToCsv()" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold">
+                Xuất CSV
+              </button>
+            </div>
+          </div>
+
+          <div class="glass-panel rounded-3xl p-6">
+            ${filteredStudents.length === 0 ? `
+              <div class="p-8 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-center text-xs text-slate-500">
+                Chưa có tài khoản học sinh nào. Nhấn <strong>"+ Tạo Tài Khoản Học Sinh"</strong> để cấp tài khoản cho học sinh.
+              </div>
+            ` : `
+              <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr class="bg-slate-100/90 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-700 text-[11px] uppercase text-slate-500">
+                      <th class="p-3">Học sinh</th>
+                      <th class="p-3">Email & Mật khẩu</th>
+                      <th class="p-3">Lớp</th>
+                      <th class="p-3 text-center">R / L / W / S</th>
+                      <th class="p-3 text-center">Overall</th>
+                      <th class="p-3 text-center">XP & Level</th>
+                      <th class="p-3 text-right">Thao tác</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+                    ${filteredStudents.map(stu => {
+                      const ov = calcOverallScore(stu.skills);
+                      const gr = getCambridgeGradeBadge(ov);
+                      const lv = calcLevel(stu.xp || 0);
+                      return `
+                        <tr>
+                          <td class="p-3">
+                            <div class="font-extrabold text-sm">${escapeHtml(stu.name)}</div>
+                            <div class="text-[11px] text-slate-500">${escapeHtml(stu.phone || "Chưa có SĐT")}</div>
+                          </td>
+                          <td class="p-3 font-bold text-indigo-600 dark:text-indigo-400">${escapeHtml(getClassNameById(stu.classId))}</td>
+                          <td class="p-3 text-center font-mono">
+                            ${stu.skills?.reading || 140} / ${stu.skills?.listening || 140} / ${stu.skills?.writing || 140} / ${stu.skills?.speaking || 140}
+                          </td>
+                          <td class="p-3 text-center">
+                            <span class="px-2.5 py-1 rounded-lg font-extrabold ${gr.cls}">${ov} (${gr.label})</span>
+                          </td>
+                          <td class="p-3 text-center font-bold">
+                            ${stu.xp || 0} XP • <span class="text-indigo-600 dark:text-indigo-400">Lv.${lv}</span>
+                          </td>
+                          <td class="p-3 text-right">
+                            <button type="button" onclick="openEditStudentRecordModal('${stu.id}')" class="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold">
+                              Sửa điểm & hồ sơ
+                            </button>
+                          </td>
+                        </tr>
+                      `;
+                    }).join("")}
+                  </tbody>
+                </table>
+              </div>
+            `}
+          </div>
+        </div>
+      `;
+    }
+
+    function openTeacherRegisterStudentModal() {
+      const classes = appState.classesList || [];
       openModal(`
-        <div class="space-y-5">
+        <div class="space-y-4">
           <div class="flex items-center justify-between">
             <div>
-              <h3 class="font-display font-extrabold text-xl">Tùy Chỉnh Skin Nhân Vật & Bot Mini AI</h3>
-              <p class="text-xs text-slate-500">Chọn phong cách hiển thị và trợ lý đồng hành luyện thi PET của bạn</p>
+              <h3 class="font-display font-extrabold text-xl">🎓 Tạo Tài Khoản Học Sinh Mới</h3>
+              <p class="text-xs text-slate-500">Cấp tài khoản đăng nhập & phân lớp để học sinh vào luyện thi B1 PET</p>
             </div>
-            <button onclick="closeModal()" class="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800">✕</button>
+            <button type="button" onclick="closeModal()" class="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800">✕</button>
           </div>
 
-          <div class="space-y-2">
-            <div class="text-xs font-extrabold uppercase text-slate-500">1. Skin Nhân Vật</div>
-            <div class="grid grid-cols-2 gap-3">
-              ${SKIN_CATALOG.map(s => `
-                <button type="button" onclick="selectStudentSkin('${s.id}')" class="p-3.5 rounded-2xl border text-left flex items-center gap-3 transition ${
-                  sp.skinId === s.id ? "border-indigo-600 bg-indigo-500/15 ring-2 ring-indigo-500/30" : "border-slate-200 dark:border-slate-800"
-                }">
-                  <span class="text-2xl">${s.emoji}</span>
-                  <div>
-                    <div class="font-bold text-xs">${escapeHtml(s.name)}</div>
-                    <div class="text-[10px] text-slate-500">${escapeHtml(s.badge)}</div>
-                  </div>
-                </button>
-              `).join("")}
+          <div id="reg-stu-error" class="hidden p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs font-bold"></div>
+
+          <div class="space-y-3 text-xs">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="space-y-1">
+                <label class="font-bold text-slate-500">Họ và tên học sinh *</label>
+                <input id="reg-stu-name" type="text" placeholder="Ví dụ: Trần Bảo Ngọc" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+              </div>
+              <div class="space-y-1">
+                <label class="font-bold text-slate-500">Email đăng nhập *</label>
+                <input id="reg-stu-email" type="email" placeholder="baongoc@hilng.edu.vn" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div class="space-y-1">
+                <label class="font-bold text-slate-500">Mật khẩu *</label>
+                <input id="reg-stu-password" type="text" value="pet2026" placeholder="Mật khẩu đăng nhập" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-mono" />
+              </div>
+              <div class="space-y-1">
+                <label class="font-bold text-slate-500">Số điện thoại liên lạc</label>
+                <input id="reg-stu-phone" type="tel" placeholder="0901234567" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+              </div>
+              <div class="space-y-1">
+                <label class="font-bold text-slate-500">Lớp học</label>
+                <select id="reg-stu-class" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold">
+                  <option value="">-- Chưa phân lớp --</option>
+                  ${classes.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")}
+                </select>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-1">
+              <div class="space-y-1">
+                <label class="font-bold text-slate-500">Reading</label>
+                <input id="reg-stu-reading" type="number" min="100" max="170" value="140" class="w-full px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold" />
+              </div>
+              <div class="space-y-1">
+                <label class="font-bold text-slate-500">Listening</label>
+                <input id="reg-stu-listening" type="number" min="100" max="170" value="140" class="w-full px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold" />
+              </div>
+              <div class="space-y-1">
+                <label class="font-bold text-slate-500">Writing</label>
+                <input id="reg-stu-writing" type="number" min="100" max="170" value="140" class="w-full px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold" />
+              </div>
+              <div class="space-y-1">
+                <label class="font-bold text-slate-500">Speaking</label>
+                <input id="reg-stu-speaking" type="number" min="100" max="170" value="140" class="w-full px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold" />
+              </div>
+              <div class="space-y-1 col-span-2 sm:col-span-1">
+                <label class="font-bold text-slate-500">XP khởi đầu</label>
+                <input id="reg-stu-xp" type="number" min="0" value="0" class="w-full px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold" />
+              </div>
             </div>
           </div>
 
-          <div class="space-y-2">
-            <div class="text-xs font-extrabold uppercase text-slate-500">2. Bot Mini Đồng Hành</div>
-            <div class="grid grid-cols-2 gap-3">
-              ${BOT_CATALOG.map(b => `
-                <button type="button" onclick="selectStudentBot('${b.id}')" class="p-3.5 rounded-2xl border text-left flex items-center gap-3 transition ${
-                  sp.botId === b.id ? "border-indigo-600 bg-indigo-500/15 ring-2 ring-indigo-500/30" : "border-slate-200 dark:border-slate-800"
-                }">
-                  <span class="text-2xl">${b.emoji}</span>
-                  <div>
-                    <div class="font-bold text-xs">${escapeHtml(b.name)}</div>
-                    <div class="text-[10px] text-slate-500 line-clamp-1">${escapeHtml(b.tip)}</div>
-                  </div>
-                </button>
-              `).join("")}
-            </div>
-          </div>
-
-          <div class="flex justify-end">
-            <button onclick="closeModal()" class="px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-bold text-xs">Hoàn Tất</button>
+          <div class="flex justify-end gap-2 pt-3">
+            <button type="button" onclick="closeModal()" class="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold">Hủy</button>
+            <button type="button" onclick="saveNewStudentFromTeacher()" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-lg">
+              ✅ Tạo Tài Khoản & Đồng Bộ
+            </button>
           </div>
         </div>
       `);
     }
 
-    function selectStudentSkin(skinId) {
-      appState.studentProfile.skinId = skinId;
-      saveState();
-      renderSidebarUserCard();
-      if (appState.activeTab === "dashboard") renderCurrentView();
-      openCompanionCustomizerModal();
-    }
+    function saveNewStudentFromTeacher() {
+      const name = (document.getElementById("reg-stu-name")?.value || "").trim();
+      const email = (document.getElementById("reg-stu-email")?.value || "").trim();
+      const password = (document.getElementById("reg-stu-password")?.value || "").trim();
+      const phone = (document.getElementById("reg-stu-phone")?.value || "").trim();
+      const classId = document.getElementById("reg-stu-class")?.value || "";
+      const errBox = document.getElementById("reg-stu-error");
 
-    function selectStudentBot(botId) {
-      appState.studentProfile.botId = botId;
-      saveState();
-      syncCompanionWidget();
-      renderSidebarUserCard();
-      if (appState.activeTab === "dashboard") renderCurrentView();
-      openCompanionCustomizerModal();
-    }
-
-    // ==================== STUDENT FILE UPLOAD BOX FOR SKILLS ====================
-    function renderSkillFileSubmissionBox(skillKey, examId) {
-      const stateKey = `${skillKey}_${examId || "default"}`;
-      const picked = pendingSkillWorkFiles[stateKey];
-      return `
-        <div class="p-4 rounded-2xl border border-dashed border-indigo-400/60 bg-indigo-50/40 dark:bg-indigo-950/20 space-y-2.5">
-          <div class="flex items-center justify-between gap-2">
-            <span class="text-xs font-extrabold text-indigo-700 dark:text-indigo-300">📎 Nộp Tệp Bài Làm Kỹ Năng ${escapeHtml(skillKey)} (Không bắt buộc nhập chữ)</span>
-          </div>
-          <label for="skill-upload-${stateKey}" class="flex items-center justify-center gap-2 p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 cursor-pointer text-xs font-bold hover:border-indigo-500 transition">
-            <i data-lucide="file-up" class="w-4 h-4 text-indigo-600"></i>
-            <span id="skill-upload-label-${stateKey}">${picked ? `Đã chọn: ${escapeHtml(picked.name)} (${escapeHtml(picked.size)})` : "Chọn file bài làm từ thiết bị (PDF, DOCX, Ảnh, Audio MP3/WAV, ZIP...)"}</span>
-          </label>
-          <input id="skill-upload-${stateKey}" type="file" onchange="handleSkillWorkFileSelect('${stateKey}', this)" class="hidden" />
-          <button type="button" onclick="submitSkillWorkFile('${skillKey}', '${examId || "default"}')" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition">
-            Nộp File Bài Làm ${escapeHtml(skillKey)} Lên Hệ Thống
-          </button>
-        </div>
-      `;
-    }
-
-    function handleSkillWorkFileSelect(stateKey, input) {
-      const file = input.files && input.files[0];
-      const lbl = document.getElementById(`skill-upload-label-${stateKey}`);
-      readUploadedFileMeta(file, (meta) => {
-        if (!meta) {
-          delete pendingSkillWorkFiles[stateKey];
-          if (lbl) lbl.textContent = "Chọn file bài làm từ thiết bị (PDF, DOCX, Ảnh, Audio MP3/WAV, ZIP...)";
-          return;
+      if (!name || !email) {
+        if (errBox) {
+          errBox.classList.remove("hidden");
+          errBox.textContent = "Vui lòng nhập đầy đủ Họ và tên và Email đăng nhập của học sinh.";
         }
-        pendingSkillWorkFiles[stateKey] = meta;
-        if (lbl) lbl.textContent = `Đã chọn: ${meta.name} (${meta.size})`;
-      });
-    }
-
-    function submitSkillWorkFile(skillKey, examId) {
-      const stateKey = `${skillKey}_${examId || "default"}`;
-      const picked = pendingSkillWorkFiles[stateKey];
-      if (!picked) return;
-
-      const sp = appState.studentProfile;
-      const exam = appState.exams.find(e => e.id === examId);
-      appState.assignments.unshift({
-        id: "sub-skill-" + Date.now(),
-        title: `[Bài nộp ${skillKey}] ${exam ? exam.title : "Luyện tập kỹ năng " + skillKey}`,
-        description: `Học sinh ${sp.name} (${sp.email}) đã tải tệp bài làm kỹ năng ${skillKey}.`,
-        dueDate: new Date().toLocaleDateString("vi-VN"),
-        xpReward: 80,
-        status: "submitted",
-        submittedFile: picked,
-        submissionText: `Nộp file bài làm ${skillKey}: ${picked.name}`,
-        grade: "",
-        feedback: "",
-        _updatedAt: Date.now()
-      });
-
-      delete pendingSkillWorkFiles[stateKey];
-      const lowerSk = skillKey.toLowerCase();
-      if (["reading", "listening", "writing", "speaking"].includes(lowerSk)) {
-        boostStudentSkillScore(lowerSk, 2);
-      }
-      addXp(80, `Nộp file bài làm kỹ năng ${skillKey}: ${picked.name}`);
-      completeQuestBySkill(skillKey);
-      saveState();
-      renderCurrentView();
-    }
-
-    // ==================== 2. READING SIMULATOR ====================
-    function renderReadingSimulator(container) {
-      const readExams = appState.exams.filter(e => e.skill === "Reading");
-      if (readExams.length === 0) {
-        container.innerHTML = `
-          <div class="glass-panel rounded-3xl p-8 space-y-4">
-            <div class="text-center text-sm text-slate-500">Chưa có đề Reading nào được giáo viên đăng tải.</div>
-            ${renderSkillFileSubmissionBox("Reading", "free")}
-          </div>
-        `;
-        return;
-      }
-      if (!selectedReadingExamId || !readExams.some(e => e.id === selectedReadingExamId)) {
-        selectedReadingExamId = readExams[0].id;
-      }
-      const exam = readExams.find(e => e.id === selectedReadingExamId);
-
-      container.innerHTML = `
-        <div class="space-y-6">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <span class="text-xs font-extrabold uppercase tracking-wider text-indigo-600">${escapeHtml(exam.partFormat || "Cambridge PET Reading")}</span>
-              <h2 class="font-display font-extrabold text-xl sm:text-2xl">${escapeHtml(exam.title)}</h2>
-            </div>
-            <div class="flex flex-wrap gap-2">
-              ${readExams.map((ex, i) => `
-                <button onclick="selectReadingExam('${ex.id}')" class="px-3.5 py-2 rounded-xl text-xs font-bold ${ex.id === exam.id ? "bg-indigo-600 text-white" : "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"}">Đề ${i + 1}</button>
-              `).join("")}
-            </div>
-          </div>
-
-          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div class="lg:col-span-6 glass-panel rounded-3xl p-6 space-y-4">
-              <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
-                <span class="text-xs font-extrabold uppercase text-slate-500">Văn bản đề bài (Bôi đen để Highlight)</span>
-                <button onclick="highlightReadingSelection()" class="px-3 py-1 rounded-lg bg-amber-400/25 text-amber-800 dark:text-amber-200 text-xs font-extrabold hover:bg-amber-400/40 transition">
-                  🖍️ Tô Sáng Từ Khóa
-                </button>
-              </div>
-              ${exam.attachmentFile ? `
-                <div class="p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/25 flex items-center justify-between gap-2 text-xs">
-                  <div class="min-w-0">
-                    <div class="font-extrabold text-indigo-700 dark:text-indigo-300 truncate">📎 Tệp đề thi đính kèm: ${escapeHtml(exam.attachmentFile.name)}</div>
-                    <div class="text-[10px] text-slate-500">${escapeHtml(exam.attachmentFile.format || "FILE")} • ${escapeHtml(exam.attachmentFile.size || "")}</div>
-                  </div>
-                  <button onclick="downloadExamAttachmentFile('${exam.id}')" class="px-3 py-1.5 rounded-xl bg-indigo-600 text-white font-bold text-[11px] shrink-0">
-                    Tải / Xem tệp
-                  </button>
-                </div>
-              ` : ""}
-              ${exam.passage ? `<div id="reading-passage-box" class="text-sm leading-7 whitespace-pre-line text-slate-800 dark:text-slate-200 select-text">${escapeHtml(exam.passage)}</div>` : ""}
-              <textarea rows="2" placeholder="Ghi chú nháp từ vựng / ý chính của bạn..." class="w-full p-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs outline-none"></textarea>
-            </div>
-
-            <div class="lg:col-span-6 glass-panel rounded-3xl p-6 space-y-5">
-              <div class="text-xs font-extrabold uppercase text-slate-500 border-b border-slate-200 dark:border-slate-800 pb-3">
-                Câu hỏi & Đáp án (${(exam.questions || []).length} câu)
-              </div>
-              ${(exam.questions || []).length > 0 ? `
-                <div class="space-y-4">
-                  ${exam.questions.map((q, qIdx) => `
-                    <div class="p-4 rounded-2xl bg-slate-50/90 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 space-y-2.5">
-                      <div class="font-bold text-sm">${escapeHtml(q.prompt)}</div>
-                      ${q.type === "fill" ? `
-                        <input id="read-ans-${qIdx}" type="text" placeholder="Nhập 1 từ tiếng Anh chính xác..." class="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-sm font-semibold outline-none focus:border-indigo-500" />
-                      ` : `
-                        <div class="space-y-2">
-                          ${(q.options || []).map((opt, oIdx) => `
-                            <label class="flex items-center gap-2.5 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 cursor-pointer hover:border-indigo-400 text-xs sm:text-sm">
-                              <input type="radio" name="read-q-${qIdx}" value="${oIdx}" class="accent-indigo-600" />
-                              <span><strong>${String.fromCharCode(65 + oIdx)}.</strong> ${escapeHtml(opt)}</span>
-                            </label>
-                          `).join("")}
-                        </div>
-                      `}
-                      <div id="read-exp-${qIdx}" class="hidden text-xs p-2.5 rounded-xl"></div>
-                    </div>
-                  `).join("")}
-                </div>
-
-                <button onclick="gradeReadingExam()" class="w-full py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-lg shadow-indigo-500/25 transition">
-                  Nộp Bài & Chấm Điểm Reading Ngay
-                </button>
-                <div id="read-summary-box" class="hidden p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-sm font-bold text-emerald-800 dark:text-emerald-200"></div>
-              ` : ""}
-
-              ${renderSkillFileSubmissionBox("Reading", exam.id)}
-            </div>
-          </div>
-        </div>
-      `;
-    }
-
-    function selectReadingExam(id) {
-      selectedReadingExamId = id;
-      renderReadingSimulator(document.getElementById("main-content"));
-      refreshIcons();
-    }
-
-    function highlightReadingSelection() {
-      const sel = window.getSelection();
-      if (!sel || sel.isCollapsed) return;
-      try {
-        const range = sel.getRangeAt(0);
-        const mark = document.createElement("mark");
-        mark.className = "bg-amber-300/80 dark:bg-amber-500/40 px-1 rounded";
-        range.surroundContents(mark);
-        sel.removeAllRanges();
-      } catch (e) {}
-    }
-
-    function gradeReadingExam() {
-      const exam = appState.exams.find(e => e.id === selectedReadingExamId);
-      if (!exam) return;
-      let correct = 0;
-
-      exam.questions.forEach((q, idx) => {
-        const expEl = document.getElementById(`read-exp-${idx}`);
-        let isRight = false;
-        if (q.type === "fill") {
-          const val = (document.getElementById(`read-ans-${idx}`)?.value || "").trim().toLowerCase();
-          isRight = val === (q.answerText || "").trim().toLowerCase();
-        } else {
-          const checked = document.querySelector(`input[name="read-q-${idx}"]:checked`);
-          isRight = checked && Number(checked.value) === Number(q.correctIndex);
-        }
-        if (isRight) correct++;
-        if (expEl) {
-          expEl.classList.remove("hidden");
-          expEl.className = `text-xs p-3 rounded-xl ${isRight ? "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200" : "bg-rose-500/15 text-rose-800 dark:text-rose-200"}`;
-          expEl.innerHTML = `<strong>${isRight ? "✅ Chính xác!" : "❌ Chưa đúng."}</strong> ${escapeHtml(q.explanation || "")}`;
-        }
-      });
-
-      const total = exam.questions.length || 1;
-      const sumBox = document.getElementById("read-summary-box");
-      if (sumBox) {
-        sumBox.classList.remove("hidden");
-        sumBox.textContent = `Kết quả Reading: Đúng ${correct}/${total} câu (${Math.round((correct / total) * 100)}%). Điểm kỹ năng Reading được cộng +2 Cambridge Scale!`;
-      }
-
-      boostStudentSkillScore("reading", 2);
-      addXp(80, `Hoàn thành bài thi Reading (${correct}/${total} câu đúng)`);
-      completeQuestBySkill("Reading");
-    }
-
-    // ==================== 3. LISTENING SIMULATOR ====================
-    function renderListeningSimulator(container) {
-      const listenExams = appState.exams.filter(e => e.skill === "Listening");
-      if (listenExams.length === 0) {
-        container.innerHTML = `
-          <div class="glass-panel rounded-3xl p-8 space-y-4">
-            <div class="text-center text-sm text-slate-500">Chưa có đề Listening nào được giáo viên đăng tải.</div>
-            ${renderSkillFileSubmissionBox("Listening", "free")}
-          </div>
-        `;
-        return;
-      }
-      if (!selectedListeningExamId || !listenExams.some(e => e.id === selectedListeningExamId)) {
-        selectedListeningExamId = listenExams[0].id;
-        listeningPlayCount = 0;
-      }
-      const exam = listenExams.find(e => e.id === selectedListeningExamId);
-
-      container.innerHTML = `
-        <div class="space-y-6">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <span class="text-xs font-extrabold uppercase tracking-wider text-indigo-600">${escapeHtml(exam.partFormat || "Cambridge PET Listening")}</span>
-              <h2 class="font-display font-extrabold text-xl sm:text-2xl">${escapeHtml(exam.title)}</h2>
-            </div>
-            <div class="flex flex-wrap gap-2">
-              ${listenExams.map((ex, i) => `
-                <button onclick="selectListeningExam('${ex.id}')" class="px-3.5 py-2 rounded-xl text-xs font-bold ${ex.id === exam.id ? "bg-indigo-600 text-white" : "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"}">Đề ${i + 1}</button>
-              `).join("")}
-            </div>
-          </div>
-
-          <div class="glass-panel rounded-3xl p-6 space-y-5">
-            <div class="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-sky-500/10 border border-sky-500/25">
-              <div class="space-y-1">
-                <div class="font-display font-extrabold text-sm text-sky-800 dark:text-sky-200">🎧 Trình Phát Audio Chuẩn Phòng Thi Cambridge (Tối đa 2 lượt nghe)</div>
-                <div class="text-xs text-slate-600 dark:text-slate-300">Số lượt nghe còn lại: <strong>${Math.max(0, 2 - listeningPlayCount)} / 2 lượt</strong></div>
-              </div>
-              <div class="flex flex-wrap gap-2">
-                <button onclick="playCambridgeAudio()" ${listeningPlayCount >= 2 ? "disabled" : ""} class="px-4 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 disabled:opacity-45 text-white font-bold text-xs shadow-md transition">
-                  ▶ Phát Audio (${listeningPlayCount}/2)
-                </button>
-                <button onclick="stopCambridgeAudio()" class="px-3.5 py-2.5 rounded-xl bg-slate-200 dark:bg-slate-800 font-bold text-xs">
-                  ⏹ Dừng
-                </button>
-                <button onclick="toggleListeningTranscript()" class="px-3.5 py-2.5 rounded-xl bg-amber-500/15 text-amber-800 dark:text-amber-200 font-bold text-xs">
-                  📜 Hiện/Ẩn Transcript
-                </button>
-              </div>
-            </div>
-
-            ${exam.attachmentFile ? `
-              <div class="p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/25 flex items-center justify-between gap-2 text-xs">
-                <div class="min-w-0">
-                  <div class="font-extrabold text-indigo-700 dark:text-indigo-300 truncate">📎 Tệp Audio / Đề đính kèm: ${escapeHtml(exam.attachmentFile.name)}</div>
-                  <div class="text-[10px] text-slate-500">${escapeHtml(exam.attachmentFile.format || "FILE")} • ${escapeHtml(exam.attachmentFile.size || "")}</div>
-                </div>
-                <button onclick="downloadExamAttachmentFile('${exam.id}')" class="px-3 py-1.5 rounded-xl bg-indigo-600 text-white font-bold text-[11px] shrink-0">
-                  Tải / Xem tệp
-                </button>
-              </div>
-            ` : ""}
-
-            <div id="listening-transcript-box" class="hidden p-4 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs leading-relaxed whitespace-pre-line">
-              <strong>Transcript đối chiếu:</strong>\n${escapeHtml(exam.transcript || exam.passage || "")}
-            </div>
-
-            ${(exam.questions || []).length > 0 ? `
-              <div class="space-y-4">
-                ${exam.questions.map((q, qIdx) => `
-                  <div class="p-4 rounded-2xl bg-slate-50/90 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 space-y-2.5">
-                    <div class="font-bold text-sm">${escapeHtml(q.prompt)}</div>
-                    <div class="space-y-2">
-                      ${(q.options || []).map((opt, oIdx) => `
-                        <label class="flex items-center gap-2.5 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 cursor-pointer hover:border-indigo-400 text-xs sm:text-sm">
-                          <input type="radio" name="listen-q-${qIdx}" value="${oIdx}" class="accent-indigo-600" />
-                          <span><strong>${String.fromCharCode(65 + oIdx)}.</strong> ${escapeHtml(opt)}</span>
-                        </label>
-                      `).join("")}
-                    </div>
-                    <div id="listen-exp-${qIdx}" class="hidden text-xs p-2.5 rounded-xl"></div>
-                  </div>
-                `).join("")}
-              </div>
-
-              <button onclick="gradeListeningExam()" class="w-full py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-lg transition">
-                Nộp Bài & Chấm Điểm Listening Ngay
-              </button>
-            ` : ""}
-
-            ${renderSkillFileSubmissionBox("Listening", exam.id)}
-          </div>
-        </div>
-      `;
-    }
-
-    function selectListeningExam(id) {
-      stopCambridgeAudio();
-      selectedListeningExamId = id;
-      listeningPlayCount = 0;
-      renderListeningSimulator(document.getElementById("main-content"));
-      refreshIcons();
-    }
-
-    function playCambridgeAudio() {
-      const exam = appState.exams.find(e => e.id === selectedListeningExamId);
-      if (!exam || listeningPlayCount >= 2) return;
-      listeningPlayCount++;
-      renderListeningSimulator(document.getElementById("main-content"));
-      refreshIcons();
-
-      if (exam.attachmentFile && exam.attachmentFile.dataUrl && /mp3|wav|m4a|ogg/i.test(exam.attachmentFile.format || "")) {
-        const audio = new Audio(exam.attachmentFile.dataUrl);
-        audio.play().catch(() => {});
         return;
       }
 
-      if ("speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-        const utter = new SpeechSynthesisUtterance(exam.transcript || exam.passage || "Welcome to the Cambridge English B1 Preliminary Listening Test.");
-        utter.lang = "en-GB";
-        utter.rate = 0.94;
-        window.speechSynthesis.speak(utter);
-      }
-    }
-
-    function stopCambridgeAudio() {
-      if ("speechSynthesis" in window) window.speechSynthesis.cancel();
-    }
-
-    function toggleListeningTranscript() {
-      const box = document.getElementById("listening-transcript-box");
-      if (box) box.classList.toggle("hidden");
-    }
-
-    function gradeListeningExam() {
-      const exam = appState.exams.find(e => e.id === selectedListeningExamId);
-      if (!exam) return;
-      let correct = 0;
-      exam.questions.forEach((q, idx) => {
-        const checked = document.querySelector(`input[name="listen-q-${idx}"]:checked`);
-        const isRight = checked && Number(checked.value) === Number(q.correctIndex);
-        if (isRight) correct++;
-        const expEl = document.getElementById(`listen-exp-${idx}`);
-        if (expEl) {
-          expEl.classList.remove("hidden");
-          expEl.className = `text-xs p-3 rounded-xl ${isRight ? "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200" : "bg-rose-500/15 text-rose-800 dark:text-rose-200"}`;
-          expEl.innerHTML = `<strong>${isRight ? "✅ Chính xác!" : "❌ Chưa đúng."}</strong> ${escapeHtml(q.explanation || "")}`;
-        }
-      });
-      boostStudentSkillScore("listening", 2);
-      addXp(80, `Hoàn thành bài thi Listening (${correct}/${exam.questions.length} câu đúng)`);
-      completeQuestBySkill("Listening");
-    }
-
-    // ==================== 4. WRITING SIMULATOR & FILE UPLOAD ====================
-    function renderWritingSimulator(container) {
-      const writeExams = appState.exams.filter(e => e.skill === "Writing");
-      if (!selectedWritingExamId && writeExams.length > 0) selectedWritingExamId = writeExams[0].id;
-      const exam = writeExams.find(e => e.id === selectedWritingExamId) || writeExams[0];
-
-      container.innerHTML = `
-        <div class="space-y-6">
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <span class="text-xs font-extrabold uppercase tracking-wider text-indigo-600">${escapeHtml(exam?.partFormat || "Cambridge PET Writing (~100 words)")}</span>
-              <h2 class="font-display font-extrabold text-xl sm:text-2xl">${escapeHtml(exam?.title || "Writing Practice")}</h2>
-            </div>
-            ${writeExams.length > 1 ? `
-              <div class="flex flex-wrap gap-2">
-                ${writeExams.map((ex, i) => `
-                  <button onclick="selectedWritingExamId='${ex.id}'; renderWritingSimulator(document.getElementById('main-content')); refreshIcons();" class="px-3 py-1.5 rounded-xl text-xs font-bold ${ex.id === exam.id ? "bg-indigo-600 text-white" : "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"}">Đề ${i + 1}</button>
-                `).join("")}
-              </div>
-            ` : ""}
-          </div>
-
-          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div class="lg:col-span-5 glass-panel rounded-3xl p-6 space-y-4">
-              <div class="text-xs font-extrabold uppercase text-slate-500">Đề bài & Yêu cầu nội dung</div>
-              ${exam?.attachmentFile ? `
-                <div class="p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/25 flex items-center justify-between gap-2 text-xs">
-                  <span class="font-bold truncate">📎 ${escapeHtml(exam.attachmentFile.name)}</span>
-                  <button onclick="downloadExamAttachmentFile('${exam.id}')" class="px-2.5 py-1 rounded-lg bg-indigo-600 text-white font-bold shrink-0">Tải đề</button>
-                </div>
-              ` : ""}
-              <div class="p-4 rounded-2xl bg-indigo-500/5 border border-indigo-500/20 text-xs sm:text-sm leading-relaxed whitespace-pre-line">${escapeHtml(exam?.prompt || exam?.passage || "Viết bài Email hoặc Article khoảng 100 từ theo chủ đề giáo viên giao, hoặc tải tệp bài viết bên cạnh.")}</div>
-              <div class="p-3.5 rounded-2xl bg-amber-500/10 text-xs text-amber-900 dark:text-amber-200 space-y-1">
-                <div class="font-extrabold">Tiêu chí chấm điểm Cambridge PET (Thang 20):</div>
-                <ul class="list-disc pl-4 space-y-0.5">
-                  <li>Content (0–5): Trả lời đủ 3 ý ghi chú</li>
-                  <li>Communicative Achievement (0–5): Đúng văn phong thư/bài báo</li>
-                  <li>Organisation (0–5): Liên kết mạch lạc (First, Besides, Finally)</li>
-                  <li>Language (0–5): Từ vựng & ngữ pháp B1 đa dạng</li>
-                </ul>
-              </div>
-            </div>
-
-            <div class="lg:col-span-7 glass-panel rounded-3xl p-6 space-y-4">
-              <div class="flex items-center justify-between">
-                <span class="text-xs font-extrabold uppercase text-slate-500">Khung soạn thảo bài làm (Hoặc nộp file ảnh/Word bên dưới)</span>
-                <span id="writing-word-counter" class="px-3 py-1 rounded-full bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-xs font-extrabold">0 / ~100 từ</span>
-              </div>
-              <textarea id="writing-editor-area" oninput="updateWritingWordCount()" rows="8" placeholder="Viết bài làm tiếng Anh của bạn tại đây (Mục tiêu 90–120 từ)..." class="w-full p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm leading-relaxed outline-none focus:border-indigo-500"></textarea>
-
-              <div class="flex flex-wrap gap-3">
-                <button onclick="evaluateWritingWithAI()" class="flex-1 py-3.5 px-5 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold text-sm shadow-lg hover:opacity-95 transition">
-                  ✨ Chấm Điểm & Sửa Lỗi Chuẩn PET
-                </button>
-                <button onclick="exportWritingTxt()" class="py-3.5 px-4 rounded-2xl border border-slate-300 dark:border-slate-700 font-bold text-xs">
-                  Tải file .TXT
-                </button>
-              </div>
-
-              <div id="writing-feedback-box" class="hidden p-5 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-indigo-500/30 space-y-3 text-xs sm:text-sm"></div>
-
-              ${renderSkillFileSubmissionBox("Writing", exam?.id || "free")}
-            </div>
-          </div>
-        </div>
-      `;
-    }
-
-    function updateWritingWordCount() {
-      const txt = (document.getElementById("writing-editor-area")?.value || "").trim();
-      const words = txt ? txt.split(/\s+/).length : 0;
-      const badge = document.getElementById("writing-word-counter");
-      if (badge) badge.textContent = `${words} / ~100 từ`;
-    }
-
-    function exportWritingTxt() {
-      const txt = (document.getElementById("writing-editor-area")?.value || "").trim();
-      if (!txt) return;
-      const blob = new Blob([txt], { type: "text/plain;charset=utf-8" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "Hilng_PET_Writing.txt";
-      a.click();
-    }
-
-    function evaluateWritingWithAI() {
-      const txt = (document.getElementById("writing-editor-area")?.value || "").trim();
-      const words = txt ? txt.split(/\s+/).length : 0;
-      if (words < 15) return;
-
-      const lenScore = words >= 85 && words <= 130 ? 5 : words >= 60 ? 4 : 3;
-      const hasConnectors = /(because|however|moreover|besides|firstly|finally|although|so)/i.test(txt);
-      const orgScore = hasConnectors ? 5 : 4;
-      const total20 = Math.min(20, lenScore + orgScore + 8);
-
-      const box = document.getElementById("writing-feedback-box");
-      if (box) {
-        box.classList.remove("hidden");
-        box.innerHTML = `
-          <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
-            <span class="font-display font-extrabold text-base text-indigo-600 dark:text-indigo-400">Kết Quả Đánh Giá Cambridge PET: ${total20}/20 điểm</span>
-            <span class="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-xs font-extrabold">${words} từ</span>
-          </div>
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
-            <div class="p-2 rounded-xl bg-white dark:bg-slate-800"><strong>Content:</strong> ${lenScore}/5</div>
-            <div class="p-2 rounded-xl bg-white dark:bg-slate-800"><strong>Comm. Ach:</strong> 4/5</div>
-            <div class="p-2 rounded-xl bg-white dark:bg-slate-800"><strong>Organisation:</strong> ${orgScore}/5</div>
-            <div class="p-2 rounded-xl bg-white dark:bg-slate-800"><strong>Language:</strong> 4/5</div>
-          </div>
-          <p class="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
-            <strong>Nhận xét chi tiết:</strong> ${words >= 85 && words <= 130 ? "Độ dài bài viết đạt chuẩn lý tưởng ~100 từ của hội đồng Cambridge." : "Bạn nên điều chỉnh độ dài sát mốc 100 từ hơn."} ${hasConnectors ? "Bạn đã sử dụng từ nối mạch lạc rất tốt." : "Gợi ý thêm từ nối như <em>Besides, However, That's why</em> để nâng điểm Organisation."}
-          </p>
-        `;
-      }
-
-      boostStudentSkillScore("writing", 3);
-      addXp(110, "Hoàn thành bài Writing & nhận chấm điểm PET");
-      completeQuestBySkill("Writing");
-    }
-
-    // ==================== 5. SPEAKING SIMULATOR & FILE UPLOAD ====================
-    function renderSpeakingSimulator(container) {
-      const speakExams = appState.exams.filter(e => e.skill === "Speaking");
-      if (!selectedSpeakingExamId && speakExams.length > 0) selectedSpeakingExamId = speakExams[0].id;
-      const exam = speakExams.find(e => e.id === selectedSpeakingExamId) || speakExams[0];
-      const remainingEdits = Math.max(0, MAX_SPEAKING_EDITS - speakingEditCount);
-
-      container.innerHTML = `
-        <div class="space-y-6">
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <span class="text-xs font-extrabold uppercase tracking-wider text-indigo-600">${escapeHtml(exam?.partFormat || "Cambridge PET Speaking AI")}</span>
-              <h2 class="font-display font-extrabold text-xl sm:text-2xl">${escapeHtml(exam?.title || "Speaking Practice")}</h2>
-            </div>
-            ${speakExams.length > 1 ? `
-              <div class="flex flex-wrap gap-2">
-                ${speakExams.map((ex, i) => `
-                  <button onclick="selectedSpeakingExamId='${ex.id}'; renderSpeakingSimulator(document.getElementById('main-content')); refreshIcons();" class="px-3 py-1.5 rounded-xl text-xs font-bold ${ex.id === exam.id ? "bg-indigo-600 text-white" : "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"}">Đề ${i + 1}</button>
-                `).join("")}
-              </div>
-            ` : ""}
-          </div>
-
-          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div class="lg:col-span-5 glass-panel rounded-3xl p-6 space-y-4">
-              <div class="text-xs font-extrabold uppercase text-slate-500">Chủ đề & Câu hỏi giám khảo</div>
-              <div class="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-sm font-semibold leading-relaxed">
-                ${escapeHtml(exam?.prompt || exam?.passage || "Trả lời câu hỏi Speaking Part 1 & 3 bằng cách nhấn Micro thu âm hoặc tải tệp ghi âm MP3/WAV lên hệ thống.")}
-              </div>
-
-              <div class="flex flex-col items-center justify-center p-5 rounded-2xl bg-slate-100/80 dark:bg-slate-900/80 space-y-3 text-center">
-                <button onclick="toggleSpeechRecording()" class="relative w-16 h-16 rounded-full ${isRecordingSpeech ? "bg-rose-600" : "bg-indigo-600 hover:bg-indigo-700"} text-white flex items-center justify-center shadow-xl transition">
-                  ${isRecordingSpeech ? `<span class="absolute inset-0 rounded-full bg-rose-500 animate-pulse-ring"></span>` : ""}
-                  <i data-lucide="${isRecordingSpeech ? "square" : "mic"}" class="w-7 h-7 relative z-10"></i>
-                </button>
-                <div class="text-xs font-extrabold">${isRecordingSpeech ? "🔴 Đang thu âm & tự động chuyển giọng nói sang chữ..." : "Nhấn Micro để nói tiếng Anh (Tự chuyển sang văn bản)"}</div>
-                <p class="text-[11px] text-slate-500">Hỗ trợ nhận diện giọng nói tự động trên Chrome / Edge / Safari di động.</p>
-              </div>
-            </div>
-
-            <div class="lg:col-span-7 glass-panel rounded-3xl p-6 space-y-4">
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <span class="text-xs font-extrabold uppercase text-slate-500">Bản chép lời tự động từ giọng nói</span>
-                <div class="flex items-center gap-2">
-                  <span class="px-2.5 py-1 rounded-full text-[11px] font-extrabold ${remainingEdits > 0 ? "bg-amber-500/15 text-amber-700 dark:text-amber-300" : "bg-rose-500/15 text-rose-600"}">
-                    Lượt sửa còn lại: ${remainingEdits}/${MAX_SPEAKING_EDITS}
-                  </span>
-                  <button onclick="requestEditSpeakingTranscript()" ${remainingEdits <= 0 ? "disabled" : ""} class="px-3 py-1 rounded-xl bg-slate-900 dark:bg-slate-800 disabled:opacity-40 text-white text-xs font-bold transition">
-                    ✏️ Sửa lỗi nhận diện
-                  </button>
-                </div>
-              </div>
-
-              <textarea id="speaking-transcript-textarea" readonly rows="5" placeholder="Câu trả lời tiếng Anh của bạn sẽ tự động hiện thành chữ tại đây sau khi bấm Micro..." class="w-full p-4 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/90 text-sm leading-relaxed outline-none">${escapeHtml(speakingTranscriptText)}</textarea>
-
-              <div class="flex flex-wrap gap-3">
-                <button onclick="evaluateSpeakingWithAI()" class="flex-1 py-3.5 px-5 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold text-sm shadow-lg hover:opacity-95 transition">
-                  🤖 Gửi Chấm & Phân Tích Chuẩn PET Speaking
-                </button>
-                <button onclick="resetSpeakingSession()" class="py-3.5 px-4 rounded-2xl border border-slate-300 dark:border-slate-700 text-xs font-bold">
-                  Thu âm lại
-                </button>
-              </div>
-
-              <div id="speaking-ai-result" class="hidden p-5 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-indigo-500/30 space-y-3 text-xs sm:text-sm"></div>
-
-              ${renderSkillFileSubmissionBox("Speaking", exam?.id || "free")}
-            </div>
-          </div>
-        </div>
-      `;
-    }
-
-    function toggleSpeechRecording() {
-      const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SpeechRec) return;
-
-      if (isRecordingSpeech && speechRecognitionInstance) {
-        speechRecognitionInstance.stop();
-        isRecordingSpeech = false;
-        renderSpeakingSimulator(document.getElementById("main-content"));
-        refreshIcons();
-        return;
-      }
-
-      speechRecognitionInstance = new SpeechRec();
-      speechRecognitionInstance.lang = "en-US";
-      speechRecognitionInstance.continuous = true;
-      speechRecognitionInstance.interimResults = true;
-      isRecordingSpeech = true;
-      renderSpeakingSimulator(document.getElementById("main-content"));
-      refreshIcons();
-
-      speechRecognitionInstance.onresult = (event) => {
-        let finalStr = "";
-        for (let i = 0; i < event.results.length; i++) {
-          finalStr += event.results[i][0].transcript + " ";
-        }
-        speakingTranscriptText = finalStr.trim();
-        const ta = document.getElementById("speaking-transcript-textarea");
-        if (ta) ta.value = speakingTranscriptText;
-      };
-
-      speechRecognitionInstance.onend = () => {
-        isRecordingSpeech = false;
-        renderSpeakingSimulator(document.getElementById("main-content"));
-        refreshIcons();
-      };
-
-      speechRecognitionInstance.onerror = () => {
-        isRecordingSpeech = false;
-        renderSpeakingSimulator(document.getElementById("main-content"));
-        refreshIcons();
-      };
-
-      speechRecognitionInstance.start();
-    }
-
-    function requestEditSpeakingTranscript() {
-      if (speakingEditCount >= MAX_SPEAKING_EDITS) return;
-      const ta = document.getElementById("speaking-transcript-textarea");
-      if (!ta) return;
-
-      if (ta.hasAttribute("readonly")) {
-        ta.removeAttribute("readonly");
-        ta.classList.remove("bg-slate-50", "dark:bg-slate-900/90");
-        ta.classList.add("bg-white", "dark:bg-slate-950", "ring-2", "ring-amber-500");
-        ta.focus();
-        ta.onblur = () => {
-          speakingTranscriptText = ta.value;
-          speakingEditCount++;
-          renderSpeakingSimulator(document.getElementById("main-content"));
-          refreshIcons();
-        };
-      }
-    }
-
-    function resetSpeakingSession() {
-      speakingTranscriptText = "";
-      speakingEditCount = 0;
-      renderSpeakingSimulator(document.getElementById("main-content"));
-      refreshIcons();
-    }
-
-    function evaluateSpeakingWithAI() {
-      const ta = document.getElementById("speaking-transcript-textarea");
-      const text = (ta ? ta.value : speakingTranscriptText).trim();
-      if (!text) return;
-      speakingTranscriptText = text;
-      const resBox = document.getElementById("speaking-ai-result");
-      if (resBox) {
-        resBox.classList.remove("hidden");
-        resBox.innerHTML = `<div class="font-bold text-indigo-600 animate-pulse">⏳ Đang phân tích phát âm, từ vựng & cấu trúc câu chuẩn Cambridge B1 Preliminary...</div>`;
-      }
-
-      const words = text.split(/\s+/).length;
-      const grammarScore = words >= 25 ? "4.5 / 5.0" : "3.5 / 5.0";
-      const discourseScore = /(because|and|so|also|however|for example)/i.test(text) ? "4.5 / 5.0" : "3.5 / 5.0";
-
-      setTimeout(() => {
-        if (resBox) {
-          resBox.innerHTML = `
-            <div class="font-display font-extrabold text-base text-emerald-600 dark:text-emerald-400">
-              ✅ Đánh Giá Cambridge PET Speaking (Band B1 Merit)
-            </div>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-              <div class="p-2.5 rounded-xl bg-white dark:bg-slate-800"><strong>Grammar & Vocab:</strong> ${grammarScore}</div>
-              <div class="p-2.5 rounded-xl bg-white dark:bg-slate-800"><strong>Discourse Mgmt:</strong> ${discourseScore}</div>
-              <div class="p-2.5 rounded-xl bg-white dark:bg-slate-800"><strong>Pronunciation:</strong> 4.0 / 5.0</div>
-            </div>
-            <p class="text-xs leading-relaxed text-slate-600 dark:text-slate-300">
-              <strong>Suy luận & Gợi ý nâng band:</strong> Câu trả lời có độ dài ${words} từ, truyền đạt rõ ràng ý chính. Để đạt điểm tối đa 5.0, hãy bổ sung thêm 1 ví dụ cụ thể và sử dụng cụm từ nâng cao như <em>"From my perspective..."</em> hoặc <em>"Not only... but also..."</em>.
-            </p>
-          `;
-        }
-        boostStudentSkillScore("speaking", 3);
-        addXp(110, "Hoàn thành luyện nói Speaking AI");
-        completeQuestBySkill("Speaking");
-      }, 450);
-    }
-
-    // ==================== 5B. STUDENT PERSONAL SETTINGS ====================
-    function renderStudentSettingsView(container) {
-      const sp = appState.studentProfile;
-      container.innerHTML = `
-        <div class="max-w-2xl mx-auto glass-panel rounded-3xl p-6 sm:p-8 space-y-5">
-          <div>
-            <h2 class="font-display font-extrabold text-2xl">Cài Đặt Thông Tin Cá Nhân</h2>
-            <p class="text-xs text-slate-500">Email do Giáo viên cung cấp cố định; bạn có thể cập nhật tên hiển thị, số điện thoại và mật khẩu</p>
-          </div>
-          <div class="space-y-3 text-xs">
-            <div class="space-y-1">
-              <label class="font-bold text-slate-500">Email đăng nhập (Giáo viên cung cấp)</label>
-              <input type="text" readonly value="${escapeHtml(sp.email)}" class="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 font-bold text-slate-500" />
-            </div>
-            <div class="space-y-1">
-              <label class="font-bold text-slate-500">Họ và tên</label>
-              <input id="stu-set-name" type="text" value="${escapeHtml(sp.name)}" class="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-bold" />
-            </div>
-            <div class="space-y-1">
-              <label class="font-bold text-slate-500">Số điện thoại liên hệ</label>
-              <input id="stu-set-phone" type="tel" value="${escapeHtml(sp.phone || "")}" placeholder="Nhập số điện thoại..." class="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
-            </div>
-            <div class="space-y-1">
-              <label class="font-bold text-slate-500">Mật khẩu mới (để trống nếu giữ nguyên)</label>
-              <input id="stu-set-pass" type="text" value="${escapeHtml(sp.password || "")}" placeholder="Nhập mật khẩu..." class="w-full px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-mono" />
-            </div>
-          </div>
-          <button onclick="saveStudentPersonalSettings()" class="w-full py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-lg transition">
-            Lưu Thông Tin Cá Nhân
-          </button>
-        </div>
-      `;
-    }
-
-    function saveStudentPersonalSettings() {
-      const sp = appState.studentProfile;
-      const name = (document.getElementById("stu-set-name")?.value || "").trim();
-      const phone = (document.getElementById("stu-set-phone")?.value || "").trim();
-      const pass = (document.getElementById("stu-set-pass")?.value || "").trim();
-
-      if (name) sp.name = name;
-      sp.phone = phone;
-      sp.password = pass;
-
-      const idx = (appState.studentsList || []).findIndex(
-        s => s.email.toLowerCase() === (sp.email || "").toLowerCase()
+      appState.studentsList = appState.studentsList || [];
+      const existingIdx = appState.studentsList.findIndex(
+        s => s.email && s.email.toLowerCase() === email.toLowerCase()
       );
-      if (idx !== -1) {
+
+      const skills = {
+        reading: Math.min(170, Math.max(100, Number(document.getElementById("reg-stu-reading")?.value) || 140)),
+        listening: Math.min(170, Math.max(100, Number(document.getElementById("reg-stu-listening")?.value) || 140)),
+        writing: Math.min(170, Math.max(100, Number(document.getElementById("reg-stu-writing")?.value) || 140)),
+        speaking: Math.min(170, Math.max(100, Number(document.getElementById("reg-stu-speaking")?.value) || 140))
+      };
+      const xp = Math.max(0, Number(document.getElementById("reg-stu-xp")?.value) || 0);
+
+      if (existingIdx !== -1) {
+        appState.studentsList[existingIdx] = {
+          ...appState.studentsList[existingIdx],
+          name,
+          email,
+          password: password || appState.studentsList[existingIdx].password || "pet2026",
+          phone,
+          classId,
+          skills,
+          xp,
+          status: "Đang học",
+          _updatedAt: Date.now()
+        };
+      } else {
+        appState.studentsList.unshift({
+          id: "stu-" + Date.now() + "-" + Math.random().toString(36).slice(2, 5),
+          name,
+          email,
+          password: password || "pet2026",
+          phone,
+          classId,
+          skills,
+          xp,
+          skinId: "oxford",
+          botId: "pip",
+          status: "Đang học",
+          _updatedAt: Date.now()
+        });
+      }
+
+      if (appState.studentProfile && appState.studentProfile.email && appState.studentProfile.email.toLowerCase() === email.toLowerCase()) {
+        appState.studentProfile.name = name;
+        appState.studentProfile.phone = phone;
+        appState.studentProfile.password = password || "pet2026";
+        appState.studentProfile.classId = classId;
+        appState.studentProfile.skills = { ...skills };
+        appState.studentProfile.xp = xp;
+      }
+
+      saveState();
+      closeModal();
+      renderCurrentView();
+      refreshIcons();
+      showToast("Đã tạo tài khoản học sinh", `${name} (${email}) đã được lưu và đồng bộ.`, "success", false);
+    }
+
+    function openEditStudentRecordModal(stuId) {
+      const stu = (appState.studentsList || []).find(s => s.id === stuId);
+      if (!stu) return;
+      const classes = appState.classesList || [];
+      const curLvl = calcLevel(stu.xp || 0);
+
+      openModal(`
+        <div class="space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="font-display font-extrabold text-xl">✏️ Chỉnh Sửa Hồ Sơ, Điểm & Level Học Viên</h3>
+              <p class="text-xs text-slate-500">Cập nhật thông tin tài khoản, lớp học, điểm 4 kỹ năng và XP / Level</p>
+            </div>
+            <button type="button" onclick="closeModal()" class="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800">✕</button>
+          </div>
+
+          <div class="space-y-3 text-xs">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="space-y-1">
+                <label class="font-bold text-slate-500">Họ và tên</label>
+                <input id="edit-stu-name" type="text" value="${escapeHtml(stu.name)}" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-bold" />
+              </div>
+              <div class="space-y-1">
+                <label class="font-bold text-slate-500">Email đăng nhập</label>
+                <input id="edit-stu-email" type="email" value="${escapeHtml(stu.email)}" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div class="space-y-1">
+                <label class="font-bold text-slate-500">Mật khẩu</label>
+                <input id="edit-stu-password" type="text" value="${escapeHtml(stu.password || "")}" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-mono" />
+              </div>
+              <div class="space-y-1">
+                <label class="font-bold text-slate-500">Số điện thoại</label>
+                <input id="edit-stu-phone" type="tel" value="${escapeHtml(stu.phone || "")}" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
+              </div>
+              <div class="space-y-1">
+                <label class="font-bold text-slate-500">Lớp học</label>
+                <select id="edit-stu-class" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold">
+                  <option value="">-- Chưa phân lớp --</option>
+                  ${classes.map(c => `<option value="${c.id}" ${stu.classId === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}
+                </select>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+              <div class="space-y-1">
+                <label class="font-bold text-slate-500">Reading (100-170)</label>
+                <input id="edit-stu-reading" type="number" min="100" max="170" value="${stu.skills?.reading || 140}" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold" />
+              </div>
+              <div class="space-y-1">
+                <label class="font-bold text-slate-500">Listening (100-170)</label>
+                <input id="edit-stu-listening" type="number" min="100" max="170" value="${stu.skills?.listening || 140}" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold" />
+              </div>
+              <div class="space-y-1">
+                <label class="font-bold text-slate-500">Writing (100-170)</label>
+                <input id="edit-stu-writing" type="number" min="100" max="170" value="${stu.skills?.writing || 140}" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold" />
+              </div>
+              <div class="space-y-1">
+                <label class="font-bold text-slate-500">Speaking (100-170)</label>
+                <input id="edit-stu-speaking" type="number" min="100" max="170" value="${stu.skills?.speaking || 140}" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold" />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div class="p-3 rounded-2xl bg-slate-100/80 dark:bg-slate-900/80 space-y-1.5">
+                <div class="flex items-center justify-between">
+                  <label class="font-bold text-slate-500">Điểm XP (Bước level: ${getXpPerLevel()} XP)</label>
+                  <div class="flex gap-1">
+                    <button type="button" onclick="adjustModalXp(-50)" class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 font-bold">-50</button>
+                    <button type="button" onclick="adjustModalXp(50)" class="px-2 py-0.5 rounded bg-indigo-600 text-white font-bold">+50</button>
+                  </div>
+                </div>
+                <input id="edit-stu-xp" type="number" min="0" value="${stu.xp || 0}" oninput="document.getElementById('edit-stu-level').value = calcLevel(Number(this.value)||0)" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 font-extrabold" />
+              </div>
+
+              <div class="p-3 rounded-2xl bg-slate-100/80 dark:bg-slate-900/80 space-y-1.5">
+                <div class="flex items-center justify-between">
+                  <label class="font-bold text-slate-500">Cấp độ (Level)</label>
+                  <div class="flex gap-1">
+                    <button type="button" onclick="adjustModalLevel(-1)" class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 font-bold">-1</button>
+                    <button type="button" onclick="adjustModalLevel(1)" class="px-2 py-0.5 rounded bg-indigo-600 text-white font-bold">+1</button>
+                  </div>
+                </div>
+                <input id="edit-stu-level" type="number" min="1" max="99" value="${curLvl}" oninput="syncXpFromModalLevel()" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 font-extrabold text-indigo-600 dark:text-indigo-400" />
+              </div>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-3">
+            <button type="button" onclick="saveEditedStudentRecord('${stu.id}', true)" class="px-4 py-2.5 rounded-xl bg-rose-500/15 text-rose-600 font-bold text-xs">
+              🗑️ Xóa tài khoản học sinh
+            </button>
+            <div class="flex gap-2">
+              <button type="button" onclick="closeModal()" class="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold">Hủy</button>
+              <button type="button" onclick="saveEditedStudentRecord('${stu.id}', false)" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-lg">
+                💾 Lưu Thay Đổi
+              </button>
+            </div>
+          </div>
+        </div>
+      `);
+    }
+
+    function saveEditedStudentRecord(stuId, shouldDelete = false) {
+      const idx = (appState.studentsList || []).findIndex(s => s.id === stuId);
+      if (idx === -1) return;
+      const stu = appState.studentsList[idx];
+
+      if (shouldDelete) {
         appState.studentsList.splice(idx, 1);
         markItemDeleted(stuId);
         saveState();
         closeModal();
         renderCurrentView();
+        refreshIcons();
         return;
       }
 
-      stu.name = document.getElementById("edit-stu-name").value.trim() || stu.name;
-      stu.email = document.getElementById("edit-stu-email").value.trim() || stu.email;
-      stu.phone = document.getElementById("edit-stu-phone").value.trim();
-      stu.password = document.getElementById("edit-stu-password").value.trim();
-      stu.classId = document.getElementById("edit-stu-class").value;
+      stu.name = (document.getElementById("edit-stu-name")?.value || "").trim() || stu.name;
+      stu.email = (document.getElementById("edit-stu-email")?.value || "").trim() || stu.email;
+      stu.phone = (document.getElementById("edit-stu-phone")?.value || "").trim();
+      stu.password = (document.getElementById("edit-stu-password")?.value || "").trim();
+      stu.classId = document.getElementById("edit-stu-class")?.value || "";
       stu.skills = {
-        reading: Math.min(170, Math.max(100, Number(document.getElementById("edit-stu-reading").value) || 140)),
-        listening: Math.min(170, Math.max(100, Number(document.getElementById("edit-stu-listening").value) || 140)),
-        writing: Math.min(170, Math.max(100, Number(document.getElementById("edit-stu-writing").value) || 140)),
-        speaking: Math.min(170, Math.max(100, Number(document.getElementById("edit-stu-speaking").value) || 140))
+        reading: Math.min(170, Math.max(100, Number(document.getElementById("edit-stu-reading")?.value) || 140)),
+        listening: Math.min(170, Math.max(100, Number(document.getElementById("edit-stu-listening")?.value) || 140)),
+        writing: Math.min(170, Math.max(100, Number(document.getElementById("edit-stu-writing")?.value) || 140)),
+        speaking: Math.min(170, Math.max(100, Number(document.getElementById("edit-stu-speaking")?.value) || 140))
       };
-      stu.xp = Math.max(0, Number(document.getElementById("edit-stu-xp").value) || 0);
-      stu.status = nextStatus;
+      stu.xp = Math.max(0, Number(document.getElementById("edit-stu-xp")?.value) || 0);
       stu._updatedAt = Date.now();
 
-      if (appState.studentProfile.email === stu.email) {
+      if (appState.studentProfile && appState.studentProfile.email && appState.studentProfile.email.toLowerCase() === stu.email.toLowerCase()) {
         appState.studentProfile.name = stu.name;
         appState.studentProfile.phone = stu.phone;
         appState.studentProfile.password = stu.password;
@@ -2913,6 +1966,35 @@
       saveState();
       closeModal();
       renderCurrentView();
+      refreshIcons();
+    }
+
+    function exportStudentsToCsv() {
+      const rows = [
+        ["Họ tên", "Email", "Mật khẩu", "Số điện thoại", "Lớp", "Reading", "Listening", "Writing", "Speaking", "Overall", "XP", "Level"]
+      ];
+      (appState.studentsList || []).forEach(s => {
+        rows.push([
+          s.name,
+          s.email,
+          s.password || "",
+          s.phone || "",
+          getClassNameById(s.classId),
+          s.skills?.reading || 140,
+          s.skills?.listening || 140,
+          s.skills?.writing || 140,
+          s.skills?.speaking || 140,
+          calcOverallScore(s.skills),
+          s.xp || 0,
+          calcLevel(s.xp || 0)
+        ]);
+      });
+      const csvContent = "\uFEFF" + rows.map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `Hilng_PET_HocVien_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
     }
 
     // ==================== MANAGER CENTER VIEW ====================
@@ -4713,101 +3795,14 @@
   </script>
 
   <!-- ==================== CLOUD REALTIME SYNC ENGINE (CROSS-DEVICE) ==================== -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-    async function bootstrapCloudRealtimeSync() {
-      try {
-        if (typeof __firebase_config === "undefined" || !__firebase_config) {
-          window.cloudSyncError = "No cloud config";
-          if (typeof updateSyncStatusLabel === "function") updateSyncStatusLabel();
-          return;
-        }
-        const firebaseConfig = typeof __firebase_config === "string"
-          ? JSON.parse(__firebase_config)
-          : __firebase_config;
-        const appId = typeof __app_id !== "undefined" && __app_id ? __app_id : "hilng-pet-studio";
-
-        const fbApp = initializeApp(firebaseConfig);
-        const fbAuth = getAuth(fbApp);
-        const fbDb = getFirestore(fbApp);
-
-        if (typeof __initial_auth_token !== "undefined" && __initial_auth_token) {
-          await signInWithCustomToken(fbAuth, __initial_auth_token);
-        } else {
-          await signInAnonymously(fbAuth);
-        }
-
-        if (!fbAuth.currentUser) {
-          window.cloudSyncError = "Auth failed";
-          if (typeof updateSyncStatusLabel === "function") updateSyncStatusLabel();
-          return;
-        }
-
-        const refs = {
-          meta: doc(fbDb, "artifacts", appId, "public", "data", "hilng_pet_studio", "bucket_meta_v2"),
-          people: doc(fbDb, "artifacts", appId, "public", "data", "hilng_pet_studio", "bucket_people_v2"),
-          academics: doc(fbDb, "artifacts", appId, "public", "data", "hilng_pet_studio", "bucket_academics_v2"),
-          operations: doc(fbDb, "artifacts", appId, "public", "data", "hilng_pet_studio", "bucket_operations_v2")
-        };
-
-        window.cloudBucketRefs = refs;
-        window.cloudSetDocFn = setDoc;
-        window.cloudSyncReady = true;
-        window.cloudSyncError = "";
-        if (typeof updateSyncStatusLabel === "function") updateSyncStatusLabel("Cloud Đã Đồng Bộ");
-
-        // Initial pull across all 4 buckets so login & all data are immediately up-to-date
-        const snaps = await Promise.all([
-          getDoc(refs.meta),
-          getDoc(refs.people),
-          getDoc(refs.academics),
-          getDoc(refs.operations)
-        ]);
-
-        let hasAnyRemote = false;
-        const combinedRemote = {};
-        snaps.forEach(snap => {
-          if (snap.exists()) {
-            hasAnyRemote = true;
-            Object.assign(combinedRemote, snap.data());
-          }
-        });
-
-        if (hasAnyRemote && typeof applyRemoteSyncPayload === "function") {
-          applyRemoteSyncPayload(combinedRemote);
-        }
-        if (typeof pushAllCloudBucketsNow === "function") {
-          await pushAllCloudBucketsNow();
-        }
-
-        // Real-time listeners for every bucket
-        Object.values(refs).forEach(bucketRef => {
-          onSnapshot(
-            bucketRef,
-            (snapshot) => {
-              if (!snapshot.exists()) return;
-              if (snapshot.metadata && snapshot.metadata.hasPendingWrites) return;
-              const remoteData = snapshot.data();
-              if (remoteData && typeof applyRemoteSyncPayload === "function") {
-                applyRemoteSyncPayload(remoteData);
-              }
-            },
-            (err) => {
-              window.cloudSyncError = err?.message || "Snapshot error";
-              if (typeof updateSyncStatusLabel === "function") updateSyncStatusLabel();
-            }
-          );
-        });
-      } catch (e) {
-        window.cloudSyncError = e?.message || "Init error";
-        if (typeof updateSyncStatusLabel === "function") updateSyncStatusLabel();
+  <script>
+    (function setupLocalCloudFallback() {
+      window.cloudSyncReady = false;
+      window.cloudSyncError = "";
+      if (typeof updateSyncStatusLabel === "function") {
+        updateSyncStatusLabel();
       }
-    }
-
-    bootstrapCloudRealtimeSync();
+    })();
   </script>
 </body>
 </html>
