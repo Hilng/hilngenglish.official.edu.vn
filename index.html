@@ -487,29 +487,71 @@
     let isApplyingRemoteSync = false;
     let lastKnownSyncStamp = 0;
     let cloudSyncReady = false;
+    let cloudSyncError = "";
     let cloudPushTimer = null;
-    let cloudDocRef = null;
+    let cloudBucketRefs = null;
     let cloudSetDocFn = null;
 
-    function mergeCollectionByUpdatedAt(localArr, remoteArr) {
+    function sanitizeForCloud(obj, depth = 0) {
+      if (depth > 8 || obj === null || obj === undefined) return obj;
+      if (typeof obj === "string") {
+        // Strip oversized base64 dataUrl payloads (> 80KB) so Firestore 1MB limit is never exceeded
+        if (obj.startsWith("data:") && obj.length > 80000) {
+          return null;
+        }
+        return obj;
+      }
+      if (Array.isArray(obj)) {
+        return obj.map(item => sanitizeForCloud(item, depth + 1));
+      }
+      if (typeof obj === "object") {
+        const clean = {};
+        for (const [k, v] of Object.entries(obj)) {
+          if (v === undefined) continue;
+          clean[k] = sanitizeForCloud(v, depth + 1);
+        }
+        return clean;
+      }
+      return obj;
+    }
+
+    function mergeCollectionByUpdatedAt(localArr, remoteArr, deletedSet = new Set()) {
       const map = new Map();
       (Array.isArray(localArr) ? localArr : []).forEach(item => {
-        if (item && item.id) map.set(item.id, item);
+        if (item && item.id && !deletedSet.has(item.id)) map.set(item.id, item);
       });
       (Array.isArray(remoteArr) ? remoteArr : []).forEach(item => {
-        if (!item || !item.id) return;
+        if (!item || !item.id || deletedSet.has(item.id)) return;
         const prev = map.get(item.id);
         if (!prev || (item._updatedAt || 0) >= (prev._updatedAt || 0)) {
-          map.set(item.id, item);
+          // Preserve local dataUrl if remote stripped it due to size
+          const mergedItem = { ...item };
+          if (prev && prev.dataUrl && !mergedItem.dataUrl) mergedItem.dataUrl = prev.dataUrl;
+          if (prev && prev.attachmentFile?.dataUrl && mergedItem.attachmentFile && !mergedItem.attachmentFile.dataUrl) {
+            mergedItem.attachmentFile = { ...mergedItem.attachmentFile, dataUrl: prev.attachmentFile.dataUrl };
+          }
+          if (prev && prev.submittedFile?.dataUrl && mergedItem.submittedFile && !mergedItem.submittedFile.dataUrl) {
+            mergedItem.submittedFile = { ...mergedItem.submittedFile, dataUrl: prev.submittedFile.dataUrl };
+          }
+          if (prev && prev.teacherFile?.dataUrl && mergedItem.teacherFile && !mergedItem.teacherFile.dataUrl) {
+            mergedItem.teacherFile = { ...mergedItem.teacherFile, dataUrl: prev.teacherFile.dataUrl };
+          }
+          map.set(item.id, mergedItem);
         }
       });
       return Array.from(map.values()).sort((a, b) => (b._updatedAt || 0) - (a._updatedAt || 0));
+    }
+
+    function markItemDeleted(id) {
+      if (!id) return;
+      appState.deletedEntityIds = Array.from(new Set([...(appState.deletedEntityIds || []), id])).slice(-300);
     }
 
     function mergeFullStates(localState, remoteState) {
       const loc = normalizeState(localState);
       const rem = normalizeState(remoteState);
       const preferRemoteScalar = (rem.lastSyncTimestamp || 0) >= (loc.lastSyncTimestamp || 0);
+      const deletedEntitySet = new Set([...(loc.deletedEntityIds || []), ...(rem.deletedEntityIds || [])]);
 
       const merged = normalizeState({
         ...loc,
@@ -520,20 +562,21 @@
         xpPerLevel: preferRemoteScalar ? rem.xpPerLevel : loc.xpPerLevel,
         levelTitles: { ...(loc.levelTitles || {}), ...(rem.levelTitles || {}) },
         deletedBadgeIds: Array.from(new Set([...(loc.deletedBadgeIds || []), ...(rem.deletedBadgeIds || [])])),
-        customBadges: mergeCollectionByUpdatedAt(loc.customBadges, rem.customBadges),
-        quests: mergeCollectionByUpdatedAt(loc.quests, rem.quests),
-        rewards: mergeCollectionByUpdatedAt(loc.rewards, rem.rewards),
-        rewardClaims: mergeCollectionByUpdatedAt(loc.rewardClaims, rem.rewardClaims),
-        courses: mergeCollectionByUpdatedAt(loc.courses, rem.courses),
-        resources: mergeCollectionByUpdatedAt(loc.resources, rem.resources),
-        exams: mergeCollectionByUpdatedAt(loc.exams, rem.exams),
-        assignments: mergeCollectionByUpdatedAt(loc.assignments, rem.assignments),
-        studentsList: mergeCollectionByUpdatedAt(loc.studentsList, rem.studentsList),
-        teachersList: mergeCollectionByUpdatedAt(loc.teachersList, rem.teachersList),
-        classesList: mergeCollectionByUpdatedAt(loc.classesList, rem.classesList),
-        attendanceSessions: mergeCollectionByUpdatedAt(loc.attendanceSessions, rem.attendanceSessions),
-        attendanceReports: mergeCollectionByUpdatedAt(loc.attendanceReports, rem.attendanceReports),
-        notifications: mergeCollectionByUpdatedAt(loc.notifications, rem.notifications).slice(0, 60),
+        deletedEntityIds: Array.from(deletedEntitySet).slice(-300),
+        customBadges: mergeCollectionByUpdatedAt(loc.customBadges, rem.customBadges, deletedEntitySet),
+        quests: mergeCollectionByUpdatedAt(loc.quests, rem.quests, deletedEntitySet),
+        rewards: mergeCollectionByUpdatedAt(loc.rewards, rem.rewards, deletedEntitySet),
+        rewardClaims: mergeCollectionByUpdatedAt(loc.rewardClaims, rem.rewardClaims, deletedEntitySet),
+        courses: mergeCollectionByUpdatedAt(loc.courses, rem.courses, deletedEntitySet),
+        resources: mergeCollectionByUpdatedAt(loc.resources, rem.resources, deletedEntitySet),
+        exams: mergeCollectionByUpdatedAt(loc.exams, rem.exams, deletedEntitySet),
+        assignments: mergeCollectionByUpdatedAt(loc.assignments, rem.assignments, deletedEntitySet),
+        studentsList: mergeCollectionByUpdatedAt(loc.studentsList, rem.studentsList, deletedEntitySet),
+        teachersList: mergeCollectionByUpdatedAt(loc.teachersList, rem.teachersList, deletedEntitySet),
+        classesList: mergeCollectionByUpdatedAt(loc.classesList, rem.classesList, deletedEntitySet),
+        attendanceSessions: mergeCollectionByUpdatedAt(loc.attendanceSessions, rem.attendanceSessions, deletedEntitySet),
+        attendanceReports: mergeCollectionByUpdatedAt(loc.attendanceReports, rem.attendanceReports, deletedEntitySet),
+        notifications: mergeCollectionByUpdatedAt(loc.notifications, rem.notifications, deletedEntitySet).slice(0, 60),
         lastSyncTimestamp: Math.max(loc.lastSyncTimestamp || 0, rem.lastSyncTimestamp || 0),
         syncRevision: Math.max(loc.syncRevision || 1, rem.syncRevision || 1)
       });
@@ -542,15 +585,24 @@
 
     function updateSyncStatusLabel(customText = "") {
       const lbl = document.getElementById("live-sync-label");
+      const authBadge = document.getElementById("auth-cloud-status");
+      const defaultStatus = cloudSyncReady
+        ? "Cloud Đã Đồng Bộ"
+        : cloudSyncError
+          ? "Chế độ Local (Bấm để đồng bộ)"
+          : "Đang kết nối Cloud...";
+      if (authBadge) {
+        authBadge.textContent = cloudSyncReady ? "● Cloud Sync Sẵn Sàng" : "● Chế độ Local";
+      }
       if (!lbl) return;
       if (customText) {
         lbl.textContent = customText;
         setTimeout(() => {
-          if (lbl) lbl.textContent = cloudSyncReady ? "Cloud Sync Trực Tuyến" : "Đồng bộ tức thì";
+          if (lbl) lbl.textContent = defaultStatus;
         }, 2500);
         return;
       }
-      lbl.textContent = cloudSyncReady ? "Cloud Sync Trực Tuyến" : "Đồng bộ tức thì";
+      lbl.textContent = defaultStatus;
     }
 
     function loadState() {
@@ -590,40 +642,66 @@
       updateSyncStatusLabel();
     }
 
-    function buildCloudSharedSnapshot(stateObj) {
+    function buildCloudBuckets(stateObj) {
+      const ts = stateObj.lastSyncTimestamp || Date.now();
       return {
-        v: 9,
-        lastSyncTimestamp: stateObj.lastSyncTimestamp || Date.now(),
-        syncRevision: stateObj.syncRevision || 1,
-        xpPerLevel: stateObj.xpPerLevel || 250,
-        levelTitles: stateObj.levelTitles || {},
-        deletedBadgeIds: stateObj.deletedBadgeIds || [],
-        customBadges: stateObj.customBadges || [],
-        quests: stateObj.quests || [],
-        rewards: stateObj.rewards || [],
-        rewardClaims: stateObj.rewardClaims || [],
-        courses: stateObj.courses || [],
-        resources: stateObj.resources || [],
-        exams: stateObj.exams || [],
-        assignments: stateObj.assignments || [],
-        studentsList: stateObj.studentsList || [],
-        teachersList: stateObj.teachersList || [],
-        classesList: stateObj.classesList || [],
-        attendanceSessions: stateObj.attendanceSessions || [],
-        attendanceReports: stateObj.attendanceReports || [],
-        notifications: (stateObj.notifications || []).slice(0, 50)
+        meta: sanitizeForCloud({
+          lastSyncTimestamp: ts,
+          syncRevision: stateObj.syncRevision || 1,
+          xpPerLevel: stateObj.xpPerLevel || 250,
+          levelTitles: stateObj.levelTitles || {},
+          deletedBadgeIds: stateObj.deletedBadgeIds || [],
+          deletedEntityIds: stateObj.deletedEntityIds || [],
+          customBadges: stateObj.customBadges || [],
+          quests: stateObj.quests || []
+        }),
+        people: sanitizeForCloud({
+          lastSyncTimestamp: ts,
+          studentsList: stateObj.studentsList || [],
+          teachersList: stateObj.teachersList || [],
+          classesList: stateObj.classesList || []
+        }),
+        academics: sanitizeForCloud({
+          lastSyncTimestamp: ts,
+          exams: stateObj.exams || [],
+          assignments: stateObj.assignments || [],
+          courses: stateObj.courses || [],
+          resources: stateObj.resources || []
+        }),
+        operations: sanitizeForCloud({
+          lastSyncTimestamp: ts,
+          rewards: stateObj.rewards || [],
+          rewardClaims: stateObj.rewardClaims || [],
+          attendanceSessions: stateObj.attendanceSessions || [],
+          attendanceReports: stateObj.attendanceReports || [],
+          notifications: (stateObj.notifications || []).slice(0, 50)
+        })
       };
     }
 
+    async function pushAllCloudBucketsNow() {
+      if (!cloudSyncReady || !cloudBucketRefs || !cloudSetDocFn) return;
+      try {
+        const buckets = buildCloudBuckets(appState);
+        await Promise.all([
+          cloudSetDocFn(cloudBucketRefs.meta, buckets.meta, { merge: true }),
+          cloudSetDocFn(cloudBucketRefs.people, buckets.people, { merge: true }),
+          cloudSetDocFn(cloudBucketRefs.academics, buckets.academics, { merge: true }),
+          cloudSetDocFn(cloudBucketRefs.operations, buckets.operations, { merge: true })
+        ]);
+        updateSyncStatusLabel("Đã lưu lên Cloud");
+      } catch (e) {
+        cloudSyncError = e?.message || "Sync error";
+        updateSyncStatusLabel("Lỗi ghi Cloud — dùng Mã Đồng Bộ");
+      }
+    }
+
     function scheduleCloudPush() {
-      if (!cloudSyncReady || !cloudDocRef || !cloudSetDocFn) return;
+      if (!cloudSyncReady || !cloudBucketRefs || !cloudSetDocFn) return;
       if (cloudPushTimer) clearTimeout(cloudPushTimer);
-      cloudPushTimer = setTimeout(async () => {
-        try {
-          const payload = JSON.parse(JSON.stringify(buildCloudSharedSnapshot(appState)));
-          await cloudSetDocFn(cloudDocRef, payload, { merge: true });
-        } catch (e) {}
-      }, 250);
+      cloudPushTimer = setTimeout(() => {
+        pushAllCloudBucketsNow();
+      }, 200);
     }
 
     function applyRemoteSyncPayload(remotePayload) {
@@ -2800,840 +2878,8 @@
         s => s.email.toLowerCase() === (sp.email || "").toLowerCase()
       );
       if (idx !== -1) {
-        appState.studentsList[idx].name = sp.name;
-        appState.studentsList[idx].phone = sp.phone;
-        appState.studentsList[idx].password = sp.password;
-        appState.studentsList[idx]._updatedAt = Date.now();
-      }
-
-      saveState();
-      renderSidebarUserCard();
-      openModal(`<div class="space-y-3"><h3 class="font-display font-extrabold text-lg text-emerald-600">Đã lưu thông tin cá nhân</h3><p class="text-xs text-slate-600 dark:text-slate-300">Thông tin số điện thoại và mật khẩu của bạn đã được cập nhật đồng bộ.</p><button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold">Đóng</button></div>`);
-    }
-
-    // ==================== 6. ASSIGNMENTS (STUDENT FILE UPLOAD) ====================
-    function renderAssignmentsView(container) {
-      container.innerHTML = `
-        <div class="space-y-6">
-          <div>
-            <h2 class="font-display font-extrabold text-2xl">Bài Tập Về Nhà & Nộp File Đồng Bộ</h2>
-            <p class="text-sm text-slate-600 dark:text-slate-400">Tải tệp đề bài của giáo viên (nếu có) và nộp tệp bài làm của bạn (PDF, Word, Ảnh chụp bài viết, Audio...).</p>
-          </div>
-
-          ${appState.assignments.length === 0 ? `
-            <div class="glass-panel rounded-3xl p-8 text-center space-y-2">
-              <div class="text-3xl">📝</div>
-              <div class="font-bold text-sm">Chưa có bài tập về nhà nào được giao</div>
-              <p class="text-xs text-slate-500">Khi giáo viên giao bài tập mới, thông báo deadline sẽ tự động hiển thị tại đây.</p>
-            </div>
-          ` : `
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-              ${appState.assignments.map(asg => `
-                <div class="glass-panel rounded-3xl p-6 flex flex-col justify-between space-y-5">
-                  <div class="space-y-2.5">
-                    <div class="flex items-center justify-between gap-2">
-                      <span class="px-3 py-1 rounded-full text-xs font-extrabold ${
-                        asg.status === "graded" ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" :
-                        asg.status === "submitted" ? "bg-amber-500/15 text-amber-700 dark:text-amber-300" :
-                        "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300"
-                      }">
-                        ${asg.status === "graded" ? "Đã chấm điểm" : asg.status === "submitted" ? "Đã nộp - Chờ chấm" : "Cần hoàn thành"}
-                      </span>
-                      <span class="text-xs font-bold text-rose-600 dark:text-rose-400">Hạn: ${escapeHtml(asg.dueDate)}</span>
-                    </div>
-                    <h3 class="font-display font-bold text-lg">${escapeHtml(asg.title)}</h3>
-                    <p class="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">${escapeHtml(asg.description || "")}</p>
-                    ${asg.teacherFile ? `
-                      <div class="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-xs">
-                        <div class="min-w-0">
-                          <div class="font-bold text-indigo-700 dark:text-indigo-300 truncate">📎 Đề bài: ${escapeHtml(asg.teacherFile.name)}</div>
-                          <div class="text-[10px] text-slate-500">${escapeHtml(asg.teacherFile.format)} • ${escapeHtml(asg.teacherFile.size)}</div>
-                        </div>
-                        <button onclick="downloadTeacherAssignmentFile('${asg.id}')" class="px-2.5 py-1 rounded-lg bg-indigo-600 text-white font-bold text-[11px] shrink-0">
-                          Tải đề
-                        </button>
-                      </div>
-                    ` : ""}
-                    <div class="text-xs font-bold text-amber-600 dark:text-amber-400">Phần thưởng: +${asg.xpReward} XP</div>
-                  </div>
-
-                  ${asg.status === "pending" ? `
-                    <div class="space-y-3 pt-2 border-t border-slate-200 dark:border-slate-800">
-                      <label for="asg-file-${asg.id}" class="flex flex-col items-center justify-center p-4 rounded-2xl border-2 border-dashed border-indigo-400/60 bg-indigo-50/40 dark:bg-indigo-950/20 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 cursor-pointer transition text-center">
-                        <i data-lucide="file-up" class="w-6 h-6 text-indigo-600 mb-1"></i>
-                        <span id="asg-file-label-${asg.id}" class="text-xs font-bold text-slate-800 dark:text-slate-100">Chọn tệp bài làm để tải lên</span>
-                        <span class="text-[11px] text-slate-500 mt-0.5">Hỗ trợ PDF, DOCX, TXT, Ảnh chụp bài làm, Audio MP3/WAV, ZIP</span>
-                      </label>
-                      <input id="asg-file-${asg.id}" type="file" onchange="handleAssignmentFileSelect('${asg.id}', this)" class="hidden" />
-
-                      <textarea id="asg-input-${asg.id}" rows="2" placeholder="Ghi chú thêm cho giáo viên (không bắt buộc nếu đã đính kèm file)..." class="w-full p-3 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs outline-none"></textarea>
-                      <button onclick="submitHomework('${asg.id}')" class="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm transition flex items-center justify-center gap-2">
-                        <i data-lucide="upload-cloud" class="w-4 h-4"></i> Nộp File Bài Tập Lên Hệ Thống
-                      </button>
-                    </div>
-                  ` : `
-                    <div class="p-4 rounded-2xl bg-slate-100/80 dark:bg-slate-900/80 space-y-2 text-xs">
-                      ${asg.submittedFile ? `
-                        <div class="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                          <div class="flex items-center gap-2 min-w-0">
-                            <i data-lucide="file-check-2" class="w-4 h-4 text-emerald-600 shrink-0"></i>
-                            <div class="min-w-0">
-                              <div class="font-bold truncate">${escapeHtml(asg.submittedFile.name)}</div>
-                              <div class="text-[10px] text-slate-500">${escapeHtml(asg.submittedFile.format || "FILE")} • ${escapeHtml(asg.submittedFile.size || "")}</div>
-                            </div>
-                          </div>
-                          <button onclick="downloadStudentHomeworkFile('${asg.id}')" class="px-2.5 py-1 rounded-lg bg-indigo-600 text-white font-bold text-[11px] shrink-0">
-                            Tải tệp
-                          </button>
-                        </div>
-                      ` : ""}
-                      <div class="font-bold text-slate-700 dark:text-slate-300">Ghi chú / Nội dung đính kèm:</div>
-                      <p class="text-slate-600 dark:text-slate-400 italic">"${escapeHtml(asg.submissionText)}"</p>
-                      ${asg.grade ? `
-                        <div class="pt-2 border-t border-slate-200 dark:border-slate-800 text-emerald-700 dark:text-emerald-300">
-                          <span class="font-extrabold">Điểm: ${escapeHtml(asg.grade)}</span> — ${escapeHtml(asg.feedback)}
-                        </div>
-                      ` : `<div class="text-amber-600 font-semibold">Đang đồng bộ sang bảng chấm của Giáo viên...</div>`}
-                    </div>
-                  `}
-                </div>
-              `).join("")}
-            </div>
-          `}
-        </div>
-      `;
-    }
-
-    function handleAssignmentFileSelect(asgId, input) {
-      const file = input.files && input.files[0];
-      const labelEl = document.getElementById(`asg-file-label-${asgId}`);
-      readUploadedFileMeta(file, (meta) => {
-        if (!meta) {
-          delete pendingHomeworkFiles[asgId];
-          if (labelEl) labelEl.textContent = "Chọn tệp bài làm để tải lên";
-          return;
-        }
-        pendingHomeworkFiles[asgId] = meta;
-        if (labelEl) labelEl.textContent = `Đã chọn: ${meta.name} (${meta.size})`;
-      });
-    }
-
-    function submitHomework(asgId) {
-      const input = document.getElementById(`asg-input-${asgId}`);
-      const val = input ? input.value.trim() : "";
-      const uploadedFile = pendingHomeworkFiles[asgId] || null;
-
-      if (!uploadedFile && !val) return;
-
-      const target = appState.assignments.find(a => a.id === asgId);
-      if (target) {
-        target.status = "submitted";
-        target.submittedFile = uploadedFile;
-        target.submissionText = val || (uploadedFile ? `Đã tải lên tệp bài làm: ${uploadedFile.name}` : "");
-        target._updatedAt = Date.now();
-        delete pendingHomeworkFiles[asgId];
-        addXp(40, "Nộp file bài tập về nhà đúng hạn");
-        saveState();
-        renderDeadlineBanner();
-        renderAssignmentsView(document.getElementById("main-content"));
-        refreshIcons();
-      }
-    }
-
-    function downloadStudentHomeworkFile(asgId) {
-      const target = appState.assignments.find(a => a.id === asgId);
-      if (!target || !target.submittedFile) return;
-      downloadStoredFileObject(target.submittedFile, "Hilng_PET_Homework");
-    }
-
-    function downloadTeacherAssignmentFile(asgId) {
-      const target = appState.assignments.find(a => a.id === asgId);
-      if (!target || !target.teacherFile) return;
-      downloadStoredFileObject(target.teacherFile, "Hilng_PET_Assignment_Prompt");
-    }
-
-    // ==================== 7. COURSES & RESOURCES (STUDENT VIEW) ====================
-    function renderCoursesAndResourcesView(container) {
-      container.innerHTML = `
-        <div class="space-y-8">
-          <div class="space-y-4">
-            <div>
-              <h2 class="font-display font-extrabold text-2xl">Khóa Học Luyện Thi Cambridge PET</h2>
-              <p class="text-xs text-slate-500">Hoàn thành đầy đủ các bài học, lý thuyết, bài tập, dự án, báo cáo trong khóa để tích điểm năng lực cuối khóa</p>
-            </div>
-            ${appState.courses.length === 0 ? `
-              <div class="glass-panel rounded-3xl p-8 text-center space-y-2">
-                <div class="text-3xl">📚</div>
-                <div class="font-bold text-sm">Chưa có khóa học nào được đăng tải</div>
-                <p class="text-xs text-slate-500">Khi giáo viên tạo khóa học mới, khóa học sẽ hiển thị đồng bộ tại đây ngay lập tức.</p>
-              </div>
-            ` : `
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
-                ${appState.courses.map(c => {
-                  const items = Array.isArray(c.items) ? c.items : [];
-                  const doneCount = items.filter(it => it.done).length;
-                  const allDone = items.length > 0 ? doneCount === items.length : true;
-                  return `
-                    <div class="glass-panel rounded-3xl p-6 flex flex-col justify-between space-y-4">
-                      <div class="space-y-3">
-                        <div class="flex flex-wrap items-center justify-between gap-2">
-                          <span class="px-2.5 py-1 rounded-full bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 text-xs font-extrabold">${escapeHtml(c.targetSkill || "Full PET")} • +${c.skillScoreGain || 3} điểm năng lực</span>
-                          <span class="text-xs font-bold text-rose-600">Hạn: ${escapeHtml(c.deadline || "Linh hoạt")}</span>
-                        </div>
-                        <h3 class="font-display font-extrabold text-lg">${escapeHtml(c.title)}</h3>
-                        <p class="text-xs text-slate-600 dark:text-slate-400">${escapeHtml(c.description || "")}</p>
-
-                        ${items.length > 0 ? `
-                          <div class="space-y-2 pt-2 border-t border-slate-200/80 dark:border-slate-800">
-                            <div class="flex items-center justify-between text-[11px] font-extrabold text-slate-500">
-                              <span>Nội dung khóa học (${doneCount}/${items.length} hoàn thành)</span>
-                              <span class="text-indigo-600">${Math.round((doneCount / items.length) * 100)}%</span>
-                            </div>
-                            ${items.map((it, idx) => `
-                              <div class="p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white/75 dark:bg-slate-900/75 flex items-center justify-between gap-2 text-xs">
-                                <div class="min-w-0">
-                                  <div class="font-bold truncate ${it.done ? "line-through text-slate-400" : ""}">
-                                    <span class="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-[10px] mr-1">${escapeHtml(it.kind || "Bài học")}</span>
-                                    ${escapeHtml(it.title)}
-                                  </div>
-                                  ${it.fileName ? `<div class="text-[10px] text-slate-500 truncate">📎 ${escapeHtml(it.fileName)} (${escapeHtml(it.size || "")})</div>` : ""}
-                                </div>
-                                <div class="flex items-center gap-1.5 shrink-0">
-                                  ${it.fileName ? `<button onclick="downloadCourseItemFile('${c.id}', ${idx})" class="px-2 py-1 rounded-lg bg-slate-200 dark:bg-slate-800 font-bold text-[10px]">Tải</button>` : ""}
-                                  <button onclick="toggleStudentCourseItem('${c.id}', ${idx})" class="px-2.5 py-1 rounded-lg font-bold text-[10px] ${it.done ? "bg-emerald-500/15 text-emerald-700" : "bg-indigo-600 text-white"}">
-                                    ${it.done ? "✓ Xong" : "Hoàn tất"}
-                                  </button>
-                                </div>
-                              </div>
-                            `).join("")}
-                          </div>
-                        ` : ""}
-                      </div>
-
-                      <button onclick="completeStudentCourse('${c.id}')" ${c.completed || !allDone ? "disabled" : ""} class="w-full py-2.5 rounded-xl font-bold text-xs transition ${
-                        c.completed
-                          ? "bg-emerald-500/15 text-emerald-700"
-                          : !allDone
-                            ? "bg-slate-200 dark:bg-slate-800 text-slate-500 cursor-not-allowed"
-                            : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-md"
-                      }">
-                        ${c.completed ? `✓ Đã tích điểm cuối khóa (+${c.skillScoreGain || 3} điểm & +${c.xpReward || 200} XP)` : !allDone ? `Hoàn thành đủ ${items.length} mục để tích điểm cuối khóa` : `Tích Điểm Cuối Khóa (+${c.skillScoreGain || 3} điểm & +${c.xpReward || 200} XP)`}
-                      </button>
-                    </div>
-                  `;
-                }).join("")}
-              </div>
-            `}
-          </div>
-
-          <div class="space-y-4">
-            <div>
-              <h2 class="font-display font-extrabold text-2xl">Kho Học Liệu & Đề Cương Cambridge</h2>
-              <p class="text-xs text-slate-500">Tài liệu PDF, Audio, Sổ tay từ vựng được Giáo viên tải trực tiếp lên kho</p>
-            </div>
-            ${appState.resources.length === 0 ? `
-              <div class="glass-panel rounded-3xl p-8 text-center space-y-2">
-                <div class="text-3xl">🗂️</div>
-                <div class="font-bold text-sm">Kho học liệu đang trống</div>
-                <p class="text-xs text-slate-500">Giáo viên chưa tải tệp học liệu nào lên hệ thống.</p>
-              </div>
-            ` : `
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                ${appState.resources.map(res => `
-                  <div class="glass-panel rounded-2xl p-5 flex flex-col justify-between space-y-4">
-                    <div class="space-y-1.5">
-                      <div class="flex items-center justify-between text-[11px] font-extrabold">
-                        <span class="px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-600">${escapeHtml(res.skill)}</span>
-                        <span class="text-slate-500">${escapeHtml(res.format)} • ${escapeHtml(res.size)}</span>
-                      </div>
-                      <div class="font-display font-bold text-sm">${escapeHtml(res.title)}</div>
-                      <div class="text-[11px] text-slate-500 truncate">${escapeHtml(res.fileName)}</div>
-                    </div>
-                    <button onclick="downloadResourceFile('${res.id}')" class="w-full py-2 rounded-xl bg-slate-900 dark:bg-slate-800 hover:bg-indigo-600 text-white font-bold text-xs transition flex items-center justify-center gap-1.5">
-                      <i data-lucide="download" class="w-3.5 h-3.5"></i> Tải Tài Liệu Về Máy
-                    </button>
-                  </div>
-                `).join("")}
-              </div>
-            `}
-          </div>
-        </div>
-      `;
-    }
-
-    function toggleStudentCourseItem(courseId, itemIdx) {
-      const c = appState.courses.find(item => item.id === courseId);
-      if (!c || !Array.isArray(c.items) || !c.items[itemIdx]) return;
-      c.items[itemIdx].done = !c.items[itemIdx].done;
-      c._updatedAt = Date.now();
-      saveState();
-      renderCoursesAndResourcesView(document.getElementById("main-content"));
-      refreshIcons();
-    }
-
-    function downloadCourseItemFile(courseId, itemIdx) {
-      const c = appState.courses.find(item => item.id === courseId);
-      const it = c && Array.isArray(c.items) ? c.items[itemIdx] : null;
-      if (!it || !it.fileName) return;
-      downloadStoredFileObject({ name: it.fileName, size: it.size, dataUrl: it.dataUrl }, it.fileName);
-    }
-
-    function completeStudentCourse(courseId) {
-      const c = appState.courses.find(item => item.id === courseId);
-      if (!c || c.completed) return;
-      const items = Array.isArray(c.items) ? c.items : [];
-      if (items.length > 0 && !items.every(it => it.done)) return;
-      c.completed = true;
-      c._updatedAt = Date.now();
-      const gain = Number(c.skillScoreGain) || 3;
-      const skillKey = (c.targetSkill || "").toLowerCase();
-      if (["reading", "listening", "writing", "speaking"].includes(skillKey)) {
-        boostStudentSkillScore(skillKey, gain);
-      } else {
-        ["reading", "listening", "writing", "speaking"].forEach(sk => boostStudentSkillScore(sk, Math.max(1, Math.round(gain / 2))));
-      }
-      addXp(c.xpReward || 200, `Hoàn thành trọn vẹn khóa học: ${c.title} (+${gain} điểm năng lực)`);
-      saveState();
-      renderDeadlineBanner();
-      renderCoursesAndResourcesView(document.getElementById("main-content"));
-      refreshIcons();
-    }
-
-    function downloadResourceFile(resId) {
-      const res = appState.resources.find(r => r.id === resId);
-      if (!res) return;
-      downloadStoredFileObject({ name: res.fileName || res.title, format: res.format, size: res.size, dataUrl: res.dataUrl }, res.title);
-    }
-
-    // ==================== 8. REWARDS STORE & BADGES (WITH MANAGER & TEACHER NOTIFICATION) ====================
-    function renderRewardsStoreView(container) {
-      const sp = appState.studentProfile;
-      const allBadges = getAllBadges();
-      const myClaims = (appState.rewardClaims || []).filter(
-        cl => cl.studentEmail && sp.email && cl.studentEmail.toLowerCase() === sp.email.toLowerCase()
-      );
-
-      container.innerHTML = `
-        <div class="space-y-8">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 class="font-display font-extrabold text-2xl">Hilng Reward Store & Huy Hiệu Thành Tích</h2>
-              <p class="text-xs text-slate-500">Dùng điểm XP tích lũy để đổi quà thật hoặc mở khóa huy hiệu • Chuỗi đăng nhập: <strong>🔥 ${sp.streak} ngày</strong></p>
-            </div>
-            <div class="px-4 py-2 rounded-2xl bg-amber-500/15 border border-amber-500/30 font-display font-extrabold text-amber-700 dark:text-amber-300 text-sm">
-              Số dư của bạn: ⚡ ${sp.xp} XP
-            </div>
-          </div>
-
-          ${appState.rewards.length === 0 ? `
-            <div class="glass-panel rounded-3xl p-8 text-center text-xs text-slate-500">
-              Cửa hàng đổi quà chưa có món quà nào. Giáo viên sẽ cập nhật danh sách phần quà sớm!
-            </div>
-          ` : `
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-              ${appState.rewards.map(rw => {
-                const isOutOfStock = rw.stock <= 0;
-                const notEnoughXp = (Number(sp.xp) || 0) < (Number(rw.cost) || 0);
-                const isClosed = rw.locked || isOutOfStock || notEnoughXp;
-                return `
-                  <div class="glass-panel rounded-3xl p-5 flex flex-col justify-between space-y-4 ${rw.locked || isOutOfStock ? "opacity-75" : ""}">
-                    <div class="space-y-2">
-                      <div class="flex items-center justify-between">
-                        <span class="text-3xl">${rw.icon || "🎁"}</span>
-                        <span class="px-2.5 py-1 rounded-full text-[11px] font-extrabold ${
-                          rw.locked || isOutOfStock ? "bg-rose-500/15 text-rose-600" : "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                        }">
-                          ${rw.locked ? "🔒 Đã khóa quà" : isOutOfStock ? "Hết slot" : `Còn ${rw.stock} slot`}
-                        </span>
-                      </div>
-                      <h3 class="font-display font-bold text-base">${escapeHtml(rw.title)}</h3>
-                      <div class="text-xs font-extrabold text-amber-600">Chi phí: ${rw.cost} XP</div>
-                    </div>
-                    <button onclick="redeemReward('${rw.id}')" ${isClosed ? "disabled" : ""} class="w-full py-2.5 rounded-xl font-bold text-xs transition ${
-                      isClosed
-                        ? "bg-slate-200 dark:bg-slate-800 text-slate-500 cursor-not-allowed"
-                        : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-md"
-                    }">
-                      ${rw.locked ? "Quà đang tạm khóa" : isOutOfStock ? "Đã hết lượt đổi" : notEnoughXp ? `Cần thêm ${rw.cost - sp.xp} XP` : "Đổi Quà Ngay"}
-                    </button>
-                  </div>
-                `;
-              }).join("")}
-            </div>
-          `}
-
-          ${myClaims.length > 0 ? `
-            <div class="glass-panel rounded-3xl p-6 space-y-3">
-              <h3 class="font-display font-extrabold text-base">🧾 Lịch Sử Đổi Quà Của Bạn (${myClaims.length})</h3>
-              <div class="space-y-2 text-xs">
-                ${myClaims.map(cl => `
-                  <div class="p-3 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/75 dark:bg-slate-900/75 flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <strong>${cl.rewardIcon || "🎁"} ${escapeHtml(cl.rewardTitle)}</strong> (-${cl.cost} XP)
-                      <span class="text-slate-400 ml-2">${escapeHtml(cl.createdAt)}</span>
-                    </div>
-                    <span class="px-2.5 py-0.5 rounded-full font-extrabold ${cl.delivered ? "bg-emerald-500/15 text-emerald-700" : "bg-amber-500/15 text-amber-700"}">
-                      ${cl.delivered ? "✓ Đã trao quà" : "Đã báo Giáo viên & Manager"}
-                    </span>
-                  </div>
-                `).join("")}
-              </div>
-            </div>
-          ` : ""}
-
-          <div class="glass-panel rounded-3xl p-6 space-y-4">
-            <h3 class="font-display font-extrabold text-lg">Bộ Sưu Tập Huy Hiệu Danh Giá</h3>
-            <div class="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-              ${allBadges.map(b => {
-                const unlocked = isBadgeUnlockedForStudent(b);
-                return `
-                  <div class="p-4 rounded-2xl border text-center space-y-1.5 ${unlocked ? "border-amber-400/50 bg-amber-500/10" : "border-slate-200 dark:border-slate-800 opacity-55"}">
-                    <div class="text-3xl">${b.icon}</div>
-                    <div class="font-display font-extrabold text-xs">${escapeHtml(b.title)}</div>
-                    <div class="text-[11px] text-slate-500">${escapeHtml(b.desc)}</div>
-                    <div class="text-[10px] font-bold ${unlocked ? "text-emerald-600" : "text-slate-400"}">${unlocked ? "✓ Đã mở khóa" : `Mở ở ${b.reqXp} XP`}</div>
-                  </div>
-                `;
-              }).join("")}
-            </div>
-          </div>
-        </div>
-      `;
-    }
-
-    function redeemReward(rewardId) {
-      const rw = appState.rewards.find(r => r.id === rewardId);
-      if (!rw || rw.locked || rw.stock <= 0) return;
-      const sp = appState.studentProfile;
-      if ((Number(sp.xp) || 0) < (Number(rw.cost) || 0)) return;
-
-      sp.xp -= Number(rw.cost) || 0;
-      const stuIdx = (appState.studentsList || []).findIndex(
-        s => s.email && sp.email && s.email.toLowerCase() === sp.email.toLowerCase()
-      );
-      if (stuIdx !== -1) {
-        appState.studentsList[stuIdx].xp = sp.xp;
-        appState.studentsList[stuIdx]._updatedAt = Date.now();
-      }
-
-      rw.stock -= 1;
-      if (rw.stock <= 0) {
-        rw.stock = 0;
-        rw.locked = true;
-      }
-      rw._updatedAt = Date.now();
-
-      const classObj = (appState.classesList || []).find(c => c.id === sp.classId);
-      const className = classObj ? classObj.name : "Chưa phân lớp";
-      const classTeacher = classObj ? (appState.teachersList || []).find(t => t.id === classObj.teacherId) : null;
-
-      const claimRecord = {
-        id: "claim-" + Date.now(),
-        studentName: sp.name || "Học viên PET",
-        studentEmail: sp.email || "",
-        classId: sp.classId || "",
-        className,
-        teacherId: classTeacher ? classTeacher.id : null,
-        teacherName: classTeacher ? classTeacher.name : "Giáo viên phụ trách",
-        rewardId: rw.id,
-        rewardTitle: rw.title,
-        rewardIcon: rw.icon || "🎁",
-        cost: rw.cost,
-        delivered: false,
-        createdAt: new Date().toLocaleString("vi-VN"),
-        _updatedAt: Date.now()
-      };
-      appState.rewardClaims = [claimRecord, ...(appState.rewardClaims || [])];
-
-      const notifyTitle = `🎁 Học sinh đổi quà: ${claimRecord.studentName}`;
-      const notifyMsg = `${claimRecord.studentName} (Lớp: ${className}) vừa đổi "${rw.title}" (${rw.cost} XP). Vui lòng xác nhận trao quà!`;
-
-      pushNotification(notifyTitle, notifyMsg, "reward_claim", true, {
-        targetRoles: ["manager", "teacher"],
-        targetTeacherId: classTeacher ? classTeacher.id : null,
-        targetClassId: sp.classId || null
-      });
-
-      saveState();
-      updateHeaderStats();
-      renderSidebarUserCard();
-      openModal(`
-        <div class="space-y-3">
-          <h3 class="font-display font-extrabold text-lg text-emerald-600">🎉 Đổi Quà Thành Công!</h3>
-          <p class="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-            Bạn đã đổi thành công phần quà <strong>${escapeHtml(rw.title)}</strong> (-${rw.cost} XP). Hệ thống đã gửi thông báo tự động tới <strong>Manager</strong> và <strong>Giáo viên lớp ${escapeHtml(className)}</strong>.
-          </p>
-          <button onclick="closeModal()" class="px-5 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold">Tuyệt vời</button>
-        </div>
-      `);
-      renderCurrentView();
-    }
-
-    // ==================== 9. TEACHER & MANAGER STUDENTS LEDGER ====================
-    let teacherClassFilterId = "ALL";
-
-    function getClassNameById(classId) {
-      if (!classId) return "Chưa phân lớp";
-      const cls = (appState.classesList || []).find(c => c.id === classId);
-      return cls ? cls.name : "Chưa phân lớp";
-    }
-
-    function renderTeacherDashboard(container) {
-      const classes = appState.classesList || [];
-      const filteredStudents = teacherClassFilterId === "ALL"
-        ? appState.studentsList
-        : appState.studentsList.filter(s => (s.classId || "") === teacherClassFilterId);
-
-      container.innerHTML = `
-        <div class="space-y-6">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 class="font-display font-extrabold text-2xl">Sổ Điểm & Quản Lý Học Viên Cambridge PET</h2>
-              <p class="text-xs text-slate-500">Đăng ký tài khoản học sinh mới, luân chuyển lớp, chỉnh sửa điểm 4 kỹ năng, Overall, XP, Level & xuất Excel</p>
-            </div>
-            <div class="flex flex-wrap items-center gap-2">
-              <select onchange="teacherClassFilterId = this.value; renderTeacherDashboard(document.getElementById('main-content')); refreshIcons();" class="px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold">
-                <option value="ALL" ${teacherClassFilterId === "ALL" ? "selected" : ""}>Tất cả lớp (${appState.studentsList.length} HV)</option>
-                ${classes.map(c => `<option value="${c.id}" ${teacherClassFilterId === c.id ? "selected" : ""}>Lớp: ${escapeHtml(c.name)}</option>`).join("")}
-              </select>
-              <button onclick="openTeacherRegisterStudentModal()" class="px-4 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-lg flex items-center gap-2 transition">
-                <i data-lucide="user-plus" class="w-4 h-4"></i> Đăng Ký Tài Khoản Học Sinh
-              </button>
-              <button onclick="exportStudentsExcelCsv()" class="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-lg flex items-center gap-2 transition">
-                <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Xuất Sổ Điểm Excel (.CSV)
-              </button>
-            </div>
-          </div>
-
-          ${filteredStudents.length === 0 ? `
-            <div class="glass-panel rounded-3xl p-10 text-center space-y-3">
-              <div class="text-4xl">🎓</div>
-              <div class="font-display font-extrabold text-base">Chưa có tài khoản học sinh nào trên hệ thống</div>
-              <p class="text-xs text-slate-500 max-w-md mx-auto">Nhấn nút <strong>"Đăng Ký Tài Khoản Học Sinh"</strong> để tạo tài khoản và cấp email/mật khẩu cho học sinh.</p>
-            </div>
-          ` : `
-            <div class="glass-panel rounded-3xl overflow-hidden">
-              <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr class="bg-slate-100/90 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-700 text-[11px] uppercase text-slate-500">
-                      <th class="p-4">Học viên & Liên hệ</th>
-                      <th class="p-3">Lớp học</th>
-                      <th class="p-3 text-center">Reading</th>
-                      <th class="p-3 text-center">Listening</th>
-                      <th class="p-3 text-center">Writing</th>
-                      <th class="p-3 text-center">Speaking</th>
-                      <th class="p-3 text-center">Overall</th>
-                      <th class="p-3 text-center">XP / Level</th>
-                      <th class="p-3">Trạng thái</th>
-                      <th class="p-4 text-right">Thao tác</th>
-                    </tr>
-                  </thead>
-                  <tbody class="divide-y divide-slate-200 dark:divide-slate-800">
-                    ${filteredStudents.map(stu => {
-                      const ov = calcOverallScore(stu.skills);
-                      const gr = getCambridgeGradeLabel(ov);
-                      const lvl = calcLevel(stu.xp);
-                      return `
-                        <tr class="hover:bg-slate-50/80 dark:hover:bg-slate-900/50">
-                          <td class="p-4">
-                            <div class="font-extrabold text-sm">${escapeHtml(stu.name)}</div>
-                            <div class="text-[11px] text-slate-500">${escapeHtml(stu.email)} ${stu.phone ? `• SĐT: ${escapeHtml(stu.phone)}` : ""}</div>
-                            ${stu.password ? `<div class="text-[10px] font-mono text-indigo-600 dark:text-indigo-400">MK: ${escapeHtml(stu.password)}</div>` : ""}
-                          </td>
-                          <td class="p-3 font-bold text-indigo-600 dark:text-indigo-400">${escapeHtml(getClassNameById(stu.classId))}</td>
-                          <td class="p-3 text-center font-bold">${stu.skills.reading}</td>
-                          <td class="p-3 text-center font-bold">${stu.skills.listening}</td>
-                          <td class="p-3 text-center font-bold">${stu.skills.writing}</td>
-                          <td class="p-3 text-center font-bold">${stu.skills.speaking}</td>
-                          <td class="p-3 text-center">
-                            <div class="font-display font-extrabold text-sm text-indigo-600 dark:text-indigo-400">${ov}</div>
-                            <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold ${gr.cls}">${gr.label}</span>
-                          </td>
-                          <td class="p-3 text-center">
-                            <div class="font-extrabold text-amber-600">${stu.xp} XP</div>
-                            <div class="text-[10px] text-slate-500">Lv.${lvl} (${escapeHtml(getLevelTitle(lvl))})</div>
-                          </td>
-                          <td class="p-3">
-                            <span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-500/10 text-indigo-700 dark:text-indigo-300">
-                              ${escapeHtml(stu.status)}
-                            </span>
-                          </td>
-                          <td class="p-4 text-right">
-                            <button onclick="openEditStudentRecordModal('${stu.id}')" class="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition">
-                              Sửa điểm / Level / Lớp
-                            </button>
-                          </td>
-                        </tr>
-                      `;
-                    }).join("")}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          `}
-        </div>
-      `;
-    }
-
-    function exportStudentsExcelCsv() {
-      const rows = [
-        ["Họ và tên", "Email", "Số điện thoại", "Lớp học", "Reading", "Listening", "Writing", "Speaking", "Overall", "Xếp loại", "XP", "Level", "Danh hiệu Level", "Trạng thái"]
-      ];
-      (appState.studentsList || []).forEach(stu => {
-        const ov = calcOverallScore(stu.skills);
-        const lvl = calcLevel(stu.xp);
-        rows.push([
-          stu.name,
-          stu.email,
-          stu.phone || "",
-          getClassNameById(stu.classId),
-          stu.skills.reading,
-          stu.skills.listening,
-          stu.skills.writing,
-          stu.skills.speaking,
-          ov,
-          getCambridgeGradeLabel(ov).label,
-          stu.xp,
-          lvl,
-          getLevelTitle(lvl),
-          stu.status
-        ]);
-      });
-      const csvContent = "\uFEFF" + rows.map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `Hilng_PET_SoDiem_${new Date().toISOString().slice(0, 10)}.csv`;
-      a.click();
-    }
-
-    function openTeacherRegisterStudentModal() {
-      const classes = appState.classesList || [];
-      openModal(`
-        <div class="space-y-5">
-          <div class="flex items-center justify-between">
-            <div>
-              <h3 class="font-display font-extrabold text-xl">Đăng Ký Tài Khoản Học Sinh Mới</h3>
-              <p class="text-xs text-slate-500">Khởi tạo tài khoản, mật khẩu, liên hệ và phân lớp cho học sinh</p>
-            </div>
-            <button onclick="closeModal()" class="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800">✕</button>
-          </div>
-
-          <div class="space-y-3 text-xs">
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div class="space-y-1">
-                <label class="font-bold text-slate-600 dark:text-slate-300">Họ và tên học sinh *</label>
-                <input id="reg-stu-name" type="text" placeholder="Nhập họ tên học sinh..." class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
-              </div>
-              <div class="space-y-1">
-                <label class="font-bold text-slate-600 dark:text-slate-300">Số điện thoại liên hệ</label>
-                <input id="reg-stu-phone" type="tel" placeholder="Nhập SĐT học sinh/phụ huynh..." class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
-              </div>
-            </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div class="space-y-1">
-                <label class="font-bold text-slate-600 dark:text-slate-300">Email / Tên đăng nhập *</label>
-                <input id="reg-stu-email" type="email" placeholder="Nhập email đăng nhập..." class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm" />
-              </div>
-              <div class="space-y-1">
-                <label class="font-bold text-slate-600 dark:text-slate-300">Mật khẩu cấp cho học sinh *</label>
-                <input id="reg-stu-password" type="text" placeholder="Nhập mật khẩu khởi tạo..." class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-mono" />
-              </div>
-            </div>
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div class="space-y-1">
-                <label class="font-bold text-slate-600 dark:text-slate-300">Phân vào lớp</label>
-                <select id="reg-stu-class" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold">
-                  <option value="">-- Chưa phân lớp --</option>
-                  ${classes.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")}
-                </select>
-              </div>
-              <div class="space-y-1">
-                <label class="font-bold text-slate-600 dark:text-slate-300">XP khởi đầu</label>
-                <input id="reg-stu-xp" type="number" min="0" value="0" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-bold" />
-              </div>
-              <div class="space-y-1">
-                <label class="font-bold text-slate-600 dark:text-slate-300">Trạng thái ban đầu</label>
-                <select id="reg-stu-status" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold">
-                  <option value="Tích cực">Tích cực</option>
-                  <option value="Xuất sắc">Xuất sắc</option>
-                  <option value="Đang tiến bộ">Đang tiến bộ</option>
-                </select>
-              </div>
-            </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div class="space-y-1">
-                <label class="font-bold text-slate-600 dark:text-slate-300">Skin nhân vật</label>
-                <select id="reg-stu-skin" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold">
-                  ${SKIN_CATALOG.map(s => `<option value="${s.id}">${s.emoji} ${escapeHtml(s.name)}</option>`).join("")}
-                </select>
-              </div>
-              <div class="space-y-1">
-                <label class="font-bold text-slate-600 dark:text-slate-300">Bot mini đồng hành</label>
-                <select id="reg-stu-bot" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold">
-                  ${BOT_CATALOG.map(b => `<option value="${b.id}">${b.emoji} ${escapeHtml(b.name)}</option>`).join("")}
-                </select>
-              </div>
-            </div>
-          </div>
-
-          <div class="flex justify-end gap-2 pt-2">
-            <button type="button" onclick="closeModal()" class="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold">Hủy</button>
-            <button type="button" onclick="saveNewStudentByTeacher()" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md">Tạo Tài Khoản Học Sinh</button>
-          </div>
-        </div>
-      `);
-    }
-
-    function saveNewStudentByTeacher() {
-      const name = (document.getElementById("reg-stu-name")?.value || "").trim();
-      const email = (document.getElementById("reg-stu-email")?.value || "").trim();
-      const phone = (document.getElementById("reg-stu-phone")?.value || "").trim();
-      const password = (document.getElementById("reg-stu-password")?.value || "").trim();
-      const classId = document.getElementById("reg-stu-class")?.value || "";
-      const xp = Math.max(0, Number(document.getElementById("reg-stu-xp")?.value) || 0);
-      const status = document.getElementById("reg-stu-status")?.value || "Tích cực";
-      const skinId = document.getElementById("reg-stu-skin")?.value || "oxford";
-      const botId = document.getElementById("reg-stu-bot")?.value || "pip";
-
-      if (!name || !email) return;
-
-      const existsIdx = appState.studentsList.findIndex(s => s.email.toLowerCase() === email.toLowerCase());
-      const newRecord = {
-        id: existsIdx !== -1 ? appState.studentsList[existsIdx].id : "stu-" + Date.now(),
-        name,
-        email,
-        phone,
-        password,
-        classId,
-        xp,
-        status,
-        skinId,
-        botId,
-        skills: existsIdx !== -1 ? appState.studentsList[existsIdx].skills : { reading: 140, listening: 140, writing: 140, speaking: 140 },
-        _updatedAt: Date.now()
-      };
-
-      if (existsIdx !== -1) {
-        appState.studentsList[existsIdx] = newRecord;
-      } else {
-        appState.studentsList.unshift(newRecord);
-      }
-
-      saveState();
-      closeModal();
-      renderCurrentView();
-    }
-
-    function openEditStudentRecordModal(stuId) {
-      const stu = appState.studentsList.find(s => s.id === stuId);
-      if (!stu) return;
-      const classes = appState.classesList || [];
-      const step = getXpPerLevel();
-
-      const statusOptions = [
-        "Xuất sắc",
-        "Tích cực",
-        "Đang tiến bộ",
-        "Cần hỗ trợ Reading",
-        "Cần hỗ trợ Listening",
-        "Cần hỗ trợ Writing",
-        "Cần hỗ trợ Speaking",
-        "Báo vắng",
-        "Bảo lưu kết quả",
-        "Nghỉ học",
-        "Đuổi học"
-      ];
-
-      openModal(`
-        <div class="space-y-5">
-          <div class="flex items-center justify-between">
-            <div>
-              <h3 class="font-display font-extrabold text-xl">Cập Nhật Hồ Sơ, Điểm, Level & Lớp Học Viên</h3>
-              <p class="text-xs text-slate-500">${escapeHtml(stu.name)} (${escapeHtml(stu.email)})</p>
-            </div>
-            <button onclick="closeModal()" class="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800">✕</button>
-          </div>
-
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <div class="space-y-1">
-              <label class="font-bold text-slate-500">Họ và tên</label>
-              <input id="edit-stu-name" type="text" value="${escapeHtml(stu.name)}" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold" />
-            </div>
-            <div class="space-y-1">
-              <label class="font-bold text-slate-500">Email đăng nhập</label>
-              <input id="edit-stu-email" type="email" value="${escapeHtml(stu.email)}" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold" />
-            </div>
-            <div class="space-y-1">
-              <label class="font-bold text-slate-500">Số điện thoại liên hệ</label>
-              <input id="edit-stu-phone" type="tel" value="${escapeHtml(stu.phone || "")}" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" />
-            </div>
-            <div class="space-y-1">
-              <label class="font-bold text-slate-500">Mật khẩu tài khoản</label>
-              <input id="edit-stu-password" type="text" value="${escapeHtml(stu.password || "")}" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono" />
-            </div>
-          </div>
-
-          <div class="space-y-1 text-xs">
-            <label class="font-bold text-slate-500">Luân chuyển / Phân lớp học</label>
-            <select id="edit-stu-class" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold">
-              <option value="">-- Chưa phân lớp --</option>
-              ${classes.map(c => `<option value="${c.id}" ${stu.classId === c.id ? "selected" : ""}>${escapeHtml(c.name)} (${escapeHtml(c.schedule || "Chưa xếp lịch")})</option>`).join("")}
-            </select>
-          </div>
-
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            ${["reading", "listening", "writing", "speaking"].map(sk => `
-              <div class="space-y-1">
-                <label class="text-[11px] font-extrabold uppercase text-slate-500">${sk}</label>
-                <input id="edit-stu-${sk}" type="number" min="100" max="170" value="${stu.skills[sk]}" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold text-sm" />
-              </div>
-            `).join("")}
-          </div>
-
-          <div class="space-y-2">
-            <label class="text-xs font-extrabold text-slate-600 dark:text-slate-300">Điểm thưởng XP hiện tại</label>
-            <div class="flex flex-wrap items-center gap-2">
-              <input id="edit-stu-xp" type="number" min="0" value="${stu.xp}" class="flex-1 min-w-[120px] px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-extrabold text-sm" />
-              <button type="button" onclick="adjustModalXp(100)" class="px-3 py-2 rounded-xl bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-bold text-xs">+100 XP</button>
-              <button type="button" onclick="adjustModalXp(250)" class="px-3 py-2 rounded-xl bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-bold text-xs">+250 XP</button>
-              <button type="button" onclick="adjustModalXp(-100)" class="px-3 py-2 rounded-xl bg-rose-500/15 text-rose-600 font-bold text-xs">-100 XP</button>
-            </div>
-          </div>
-
-          <div class="space-y-2">
-            <label class="text-xs font-extrabold text-slate-600 dark:text-slate-300">Nâng / Chỉnh Level tùy chỉnh (1 Level = ${step} XP)</label>
-            <div class="flex flex-wrap items-center gap-2">
-              <input id="edit-stu-level" type="number" min="1" max="99" value="${calcLevel(stu.xp)}" oninput="syncXpFromModalLevel()" class="w-28 px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-extrabold text-sm text-indigo-600" />
-              <button type="button" onclick="adjustModalLevel(1)" class="px-3 py-2 rounded-xl bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold text-xs">+1 Level</button>
-              <button type="button" onclick="adjustModalLevel(2)" class="px-3 py-2 rounded-xl bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold text-xs">+2 Level</button>
-            </div>
-          </div>
-
-          <div class="space-y-1.5">
-            <label class="text-xs font-extrabold text-slate-600 dark:text-slate-300">Trạng thái học tập (Nếu chọn Nghỉ học / Đuổi học sẽ xóa khỏi lớp)</label>
-            <select id="edit-stu-status" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold">
-              ${statusOptions.map(st => `<option value="${escapeHtml(st)}" ${stu.status === st ? "selected" : ""}>${escapeHtml(st)}</option>`).join("")}
-            </select>
-          </div>
-
-          <div class="flex justify-end gap-2 pt-2">
-            <button type="button" onclick="closeModal()" class="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold">Hủy</button>
-            <button type="button" onclick="saveStudentRecordFromModal('${stu.id}')" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md">Lưu Thay Đổi</button>
-          </div>
-        </div>
-      `);
-    }
-
-    function saveStudentRecordFromModal(stuId) {
-      const idx = appState.studentsList.findIndex(s => s.id === stuId);
-      if (idx === -1) return;
-      const stu = appState.studentsList[idx];
-
-      const nextStatus = document.getElementById("edit-stu-status").value;
-      if (nextStatus === "Nghỉ học" || nextStatus === "Đuổi học") {
         appState.studentsList.splice(idx, 1);
+        markItemDeleted(stuId);
         saveState();
         closeModal();
         renderCurrentView();
@@ -3918,6 +3164,7 @@
 
     function deleteManagerClass(classId) {
       appState.classesList = (appState.classesList || []).filter(c => c.id !== classId);
+      markItemDeleted(classId);
       saveState();
       renderCurrentView();
     }
@@ -3987,6 +3234,7 @@
 
     function deleteManagerTeacher(teacherId) {
       appState.teachersList = (appState.teachersList || []).filter(t => t.id !== teacherId);
+      markItemDeleted(teacherId);
       saveState();
       renderCurrentView();
     }
@@ -4265,6 +3513,8 @@
     function deleteAttendanceSession(sessionId) {
       appState.attendanceSessions = (appState.attendanceSessions || []).filter(s => s.id !== sessionId);
       appState.attendanceReports = (appState.attendanceReports || []).filter(r => r.sessionId !== sessionId);
+      markItemDeleted(sessionId);
+      markItemDeleted("rep-" + sessionId);
       if (editingAttendanceSessionId === sessionId) {
         editingAttendanceSessionId = null;
       }
@@ -4592,6 +3842,7 @@
 
     function deleteExam(examId) {
       appState.exams = appState.exams.filter(e => e.id !== examId);
+      markItemDeleted(examId);
       saveState();
       renderTeacherExamStudio(document.getElementById("main-content"));
       refreshIcons();
@@ -5240,6 +4491,7 @@
     function deleteCustomBadge(badgeId) {
       appState.customBadges = (appState.customBadges || []).filter(b => b.id !== badgeId);
       appState.deletedBadgeIds = Array.from(new Set([...(appState.deletedBadgeIds || []), badgeId]));
+      markItemDeleted(badgeId);
       if (editingBadgeId === badgeId) editingBadgeId = null;
       saveState();
       renderTeacherRewardsView(document.getElementById("main-content"));
@@ -5468,7 +4720,11 @@
 
     async function bootstrapCloudRealtimeSync() {
       try {
-        if (typeof __firebase_config === "undefined" || !__firebase_config) return;
+        if (typeof __firebase_config === "undefined" || !__firebase_config) {
+          window.cloudSyncError = "No cloud config";
+          if (typeof updateSyncStatusLabel === "function") updateSyncStatusLabel();
+          return;
+        }
         const firebaseConfig = typeof __firebase_config === "string"
           ? JSON.parse(__firebase_config)
           : __firebase_config;
@@ -5484,35 +4740,71 @@
           await signInAnonymously(fbAuth);
         }
 
-        if (!fbAuth.currentUser) return;
-
-        const sharedDoc = doc(fbDb, "artifacts", appId, "public", "data", "hilng_pet_studio", "global_workspace_v1");
-        cloudDocRef = sharedDoc;
-        cloudSetDocFn = setDoc;
-        cloudSyncReady = true;
-        updateSyncStatusLabel("Cloud Sync Trực Tuyến");
-
-        const initialSnap = await getDoc(sharedDoc);
-        if (initialSnap.exists()) {
-          applyRemoteSyncPayload(initialSnap.data());
-          await setDoc(sharedDoc, JSON.parse(JSON.stringify(buildCloudSharedSnapshot(appState))), { merge: true });
-        } else {
-          await setDoc(sharedDoc, JSON.parse(JSON.stringify(buildCloudSharedSnapshot(appState))), { merge: true });
+        if (!fbAuth.currentUser) {
+          window.cloudSyncError = "Auth failed";
+          if (typeof updateSyncStatusLabel === "function") updateSyncStatusLabel();
+          return;
         }
 
-        onSnapshot(
-          sharedDoc,
-          (snapshot) => {
-            if (!snapshot.exists()) return;
-            if (snapshot.metadata && snapshot.metadata.hasPendingWrites) return;
-            const remoteData = snapshot.data();
-            if (remoteData) {
-              applyRemoteSyncPayload(remoteData);
+        const refs = {
+          meta: doc(fbDb, "artifacts", appId, "public", "data", "hilng_pet_studio", "bucket_meta_v2"),
+          people: doc(fbDb, "artifacts", appId, "public", "data", "hilng_pet_studio", "bucket_people_v2"),
+          academics: doc(fbDb, "artifacts", appId, "public", "data", "hilng_pet_studio", "bucket_academics_v2"),
+          operations: doc(fbDb, "artifacts", appId, "public", "data", "hilng_pet_studio", "bucket_operations_v2")
+        };
+
+        window.cloudBucketRefs = refs;
+        window.cloudSetDocFn = setDoc;
+        window.cloudSyncReady = true;
+        window.cloudSyncError = "";
+        if (typeof updateSyncStatusLabel === "function") updateSyncStatusLabel("Cloud Đã Đồng Bộ");
+
+        // Initial pull across all 4 buckets so login & all data are immediately up-to-date
+        const snaps = await Promise.all([
+          getDoc(refs.meta),
+          getDoc(refs.people),
+          getDoc(refs.academics),
+          getDoc(refs.operations)
+        ]);
+
+        let hasAnyRemote = false;
+        const combinedRemote = {};
+        snaps.forEach(snap => {
+          if (snap.exists()) {
+            hasAnyRemote = true;
+            Object.assign(combinedRemote, snap.data());
+          }
+        });
+
+        if (hasAnyRemote && typeof applyRemoteSyncPayload === "function") {
+          applyRemoteSyncPayload(combinedRemote);
+        }
+        if (typeof pushAllCloudBucketsNow === "function") {
+          await pushAllCloudBucketsNow();
+        }
+
+        // Real-time listeners for every bucket
+        Object.values(refs).forEach(bucketRef => {
+          onSnapshot(
+            bucketRef,
+            (snapshot) => {
+              if (!snapshot.exists()) return;
+              if (snapshot.metadata && snapshot.metadata.hasPendingWrites) return;
+              const remoteData = snapshot.data();
+              if (remoteData && typeof applyRemoteSyncPayload === "function") {
+                applyRemoteSyncPayload(remoteData);
+              }
+            },
+            (err) => {
+              window.cloudSyncError = err?.message || "Snapshot error";
+              if (typeof updateSyncStatusLabel === "function") updateSyncStatusLabel();
             }
-          },
-          () => {}
-        );
-      } catch (e) {}
+          );
+        });
+      } catch (e) {
+        window.cloudSyncError = e?.message || "Init error";
+        if (typeof updateSyncStatusLabel === "function") updateSyncStatusLabel();
+      }
     }
 
     bootstrapCloudRealtimeSync();
