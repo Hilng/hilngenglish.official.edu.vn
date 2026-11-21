@@ -9,10 +9,48 @@
   <title>Hilng English — Hệ Thống Luyện Thi Cambridge B1 Preliminary (PET)</title>
 
   <script>
+    // Guard against unexpected runtime errors so the UI always stays responsive
+    window.addEventListener("error", function (event) {
+      const msg = (event && event.message) || "";
+      if (msg.includes("Unexpected token '<'")) {
+        event.preventDefault();
+      }
+    }, true);
+
+    window.addEventListener("unhandledrejection", function (event) {
+      if (event && typeof event.preventDefault === "function") {
+        event.preventDefault();
+      }
+    });
+
     // Safe fallback loader that never evaluates HTML fallback responses as JS
     (function setupSafeRuntimeLoaders() {
-      window.safeLoadModule = async function safeLoadModule() {
-        return null;
+      window.safeLoadModule = async function safeLoadModule(url) {
+        try {
+          if (!url || typeof url !== "string") return null;
+          const res = await fetch(url, { cache: "no-store" });
+          if (!res || !res.ok) return null;
+          const contentType = (res.headers && res.headers.get("content-type")) || "";
+          const text = await res.text();
+          const trimmed = text.trim();
+          if (
+            contentType.includes("text/html") ||
+            trimmed.startsWith("<!DOCTYPE") ||
+            trimmed.startsWith("<html") ||
+            trimmed.startsWith("<")
+          ) {
+            return null;
+          }
+          const blob = new Blob([text], { type: "application/javascript" });
+          const blobUrl = URL.createObjectURL(blob);
+          try {
+            return await import(/* @vite-ignore */ blobUrl);
+          } finally {
+            URL.revokeObjectURL(blobUrl);
+          }
+        } catch (err) {
+          return null;
+        }
       };
     })();
   </script>
@@ -22,7 +60,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet" />
 
-  <!-- Tailwind CSS -->
+  <!-- Tailwind CSS CDN + Config -->
   <script>
     window.tailwind = window.tailwind || {};
     window.tailwind.config = {
@@ -37,35 +75,38 @@
       }
     };
   </script>
+  <script src="https://cdn.tailwindcss.com"></script>
 
   <!-- Dynamic PWA Manifest with Custom Brand SVG Icon -->
   <link id="pwa-manifest-link" rel="manifest" />
   <script>
     (function setupDynamicManifest() {
-      const svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#4f46e5"/><stop offset="55%" stop-color="#7c3aed"/><stop offset="100%" stop-color="#f59e0b"/></linearGradient></defs><rect width="512" height="512" rx="120" fill="url(#g)"/><path d="M256 112L104 182l152 70 152-70-152-70zm-92 118v72c0 34 41 62 92 62s92-28 92-62v-72l-92 42-92-42z" fill="#ffffff"/><circle cx="396" cy="284" r="22" fill="#fde68a"/></svg>`;
-      const iconUrl = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgIcon);
-      const manifest = {
-        name: "Hilng English — Cambridge PET Studio",
-        short_name: "Hilng PET",
-        description: "Hệ thống luyện thi Cambridge B1 Preliminary (PET) 4 kỹ năng chuẩn quốc tế",
-        start_url: "./",
-        display: "standalone",
-        background_color: "#0f172a",
-        theme_color: "#4f46e5",
-        icons: [
-          {
-            src: iconUrl,
-            sizes: "512x512",
-            type: "image/svg+xml",
-            purpose: "any maskable"
-          }
-        ]
-      };
-      const linkEl = document.getElementById("pwa-manifest-link");
-      if (linkEl) {
-        const blob = new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" });
-        linkEl.href = URL.createObjectURL(blob);
-      }
+      try {
+        const svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#4f46e5"/><stop offset="55%" stop-color="#7c3aed"/><stop offset="100%" stop-color="#f59e0b"/></linearGradient></defs><rect width="512" height="512" rx="120" fill="url(#g)"/><path d="M256 112L104 182l152 70 152-70-152-70zm-92 118v72c0 34 41 62 92 62s92-28 92-62v-72l-92 42-92-42z" fill="#ffffff"/><circle cx="396" cy="284" r="22" fill="#fde68a"/></svg>`;
+        const iconUrl = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgIcon);
+        const manifest = {
+          name: "Hilng English — Cambridge PET Studio",
+          short_name: "Hilng PET",
+          description: "Hệ thống luyện thi Cambridge B1 Preliminary (PET) 4 kỹ năng chuẩn quốc tế",
+          start_url: "./",
+          display: "standalone",
+          background_color: "#0f172a",
+          theme_color: "#4f46e5",
+          icons: [
+            {
+              src: iconUrl,
+              sizes: "512x512",
+              type: "image/svg+xml",
+              purpose: "any maskable"
+            }
+          ]
+        };
+        const linkEl = document.getElementById("pwa-manifest-link");
+        if (linkEl) {
+          const blob = new Blob([JSON.stringify(manifest)], { type: "application/manifest+json" });
+          linkEl.href = URL.createObjectURL(blob);
+        }
+      } catch (e) {}
     })();
   </script>
 
@@ -73,10 +114,38 @@
   <script>
     window.lucide = {
       createIcons: function () {
+        const iconPaths = {
+          "smartphone": '<rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>',
+          "key-round": '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>',
+          "refresh-cw": '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+          "log-out": '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>',
+          "bell": '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+          "layout-dashboard": '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
+          "book-open": '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
+          "headphones": '<path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>',
+          "pen-tool": '<path d="m12 19 7-7 3 3-7 7-3-3z"/><path d="m18 13-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="m2 2 7.586 7.586"/><circle cx="11" cy="11" r="2"/>',
+          "mic": '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/>',
+          "clipboard-check": '<rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/>',
+          "graduation-cap": '<path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/>',
+          "gift": '<rect x="3" y="8" width="18" height="4" rx="1"/><path d="M12 8v13"/><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7"/><path d="M7.5 8a2.5 2.5 0 0 1 0-5A4.8 8 0 0 1 12 8a4.8 8 0 0 1 4.5-5 2.5 2.5 0 0 1 0 5"/>',
+          "settings": '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+          "users": '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+          "clipboard-list": '<rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
+          "file-edit": '<path d="M4 13.5V4a2 2 0 0 1 2-2h8.5L20 7.5V20a2 2 0 0 1-2 2h-5.5"/><polyline points="14 2 14 8 20 8"/><path d="M10.42 12.61a2.1 2.1 0 1 1 2.97 2.97L7.95 21 4 22l.99-3.95 5.43-5.44Z"/>',
+          "folder-up": '<path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><path d="M12 11v6"/><path d="m9 14 3-3 3 3"/>',
+          "check-square": '<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+          "award": '<circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/>',
+          "building-2": '<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/>',
+          "file-up": '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 12v6"/><path d="m9 15 3-3 3 3"/>',
+          "file-check-2": '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="m9 15 2 2 4-4"/>',
+          "send": '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
+          "download": '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>'
+        };
         document.querySelectorAll("[data-lucide]").forEach(function (el) {
-          if (!el.innerHTML.trim()) {
-            el.innerHTML = '<svg viewBox="0 0 24 24" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>';
-          }
+          const name = (el.getAttribute("data-lucide") || "").trim();
+          const body = iconPaths[name] || '<circle cx="12" cy="12" r="9"/>';
+          const cls = el.getAttribute("class") || "w-4 h-4";
+          el.innerHTML = `<svg viewBox="0 0 24 24" class="${cls}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
         });
       }
     };
@@ -90,16 +159,20 @@
   <style>
     body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
     .font-display { font-family: 'Plus Jakarta Sans', sans-serif; }
+    /* Strict guard so inline SVGs never render oversized without explicit sizing */
+    svg { max-width: 100%; max-height: 100%; display: inline-block; }
+    [data-lucide] > svg,
+    [data-lucide] { width: 1rem; height: 1rem; display: inline-flex; align-items: center; justify-content: center; }
     .glass-panel {
-      background: rgba(255, 255, 255, 0.90);
+      background: rgba(255, 255, 255, 0.92);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(226, 232, 240, 0.85);
+      border: 1px solid rgba(226, 232, 240, 0.9);
       box-shadow: 0 12px 32px -12px rgba(15, 23, 42, 0.09);
     }
     .dark .glass-panel {
-      background: rgba(15, 23, 42, 0.86);
-      border: 1px solid rgba(51, 65, 85, 0.72);
+      background: rgba(15, 23, 42, 0.88);
+      border: 1px solid rgba(51, 65, 85, 0.75);
       box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.48);
     }
     .pb-safe { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
@@ -109,22 +182,10 @@
       50% { transform: translateY(-6px); }
     }
     .animate-float { animation: floatSlow 3.5s ease-in-out infinite; }
-    @keyframes pulseRing {
-      0% { transform: scale(0.95); opacity: 0.7; }
-      70% { transform: scale(1.15); opacity: 0; }
-      100% { transform: scale(1.15); opacity: 0; }
-    }
-    .animate-pulse-ring { animation: pulseRing 1.6s cubic-bezier(0.24, 0, 0.38, 1) infinite; }
     .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
     .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.45); border-radius: 9999px; }
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-    .mobile-app-card {
-      transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.18s ease;
-    }
-    .mobile-app-card:active {
-      transform: scale(0.985);
-    }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 min-h-screen transition-colors duration-300 selection:bg-indigo-500 selection:text-white overflow-x-hidden">
@@ -140,7 +201,7 @@
       <div class="flex items-center gap-3.5">
         <div class="relative w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-600 via-violet-600 to-amber-500 p-[2px] shadow-lg shadow-indigo-500/30 shrink-0">
           <div class="w-full h-full rounded-[14px] bg-slate-950/90 flex items-center justify-center relative overflow-hidden">
-            <svg viewBox="0 0 48 48" class="w-8 h-8 relative z-10" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <svg viewBox="0 0 48 48" class="w-7 h-7 relative z-10" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M24 8L6 16.5L24 25L42 16.5L24 8Z" fill="#A5B4FC"/>
               <path d="M13 21.5V30.5C13 34.6 17.9 38 24 38C30.1 38 35 34.6 35 30.5V21.5L24 26.8L13 21.5Z" fill="#ffffff"/>
               <path d="M39 18V29" stroke="#FBBF24" stroke-width="2.6" stroke-linecap="round"/>
@@ -155,6 +216,7 @@
       </div>
 
       <div class="flex items-center gap-2">
+        <span id="auth-cloud-status" class="hidden sm:inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">● Cloud Sync Sẵn Sàng</span>
         <button onclick="openPwaInstallModal()" class="px-3.5 py-2 rounded-xl text-xs font-bold bg-white/90 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-indigo-400 transition flex items-center gap-1.5">
           <i data-lucide="smartphone" class="w-4 h-4 text-indigo-600"></i>
           <span class="hidden sm:inline">Cài App Điện Thoại</span>
@@ -415,14 +477,6 @@
       { id: "buzzy", name: "Buzzy the Bee", emoji: "🐝", tip: "Mẹo Speaking: Mở rộng câu trả lời bằng Because / For example để ghi điểm cao!" }
     ];
 
-    const CAMBRIDGE_STAGES = [
-      { stage: 1, title: "A2 Waystage Foundation", minScore: 120, maxScore: 139, desc: "Nắm chắc từ vựng & cấu trúc giao tiếp cơ bản" },
-      { stage: 2, title: "B1 Entry Threshold", minScore: 140, maxScore: 146, desc: "Đạt chuẩn vượt qua kỳ thi PET (Grade C)" },
-      { stage: 3, title: "B1 Solid Performer", minScore: 147, maxScore: 152, desc: "Vững vàng kỹ năng đọc hiểu & viết luận ngắn" },
-      { stage: 4, title: "B1 Merit Achiever", minScore: 153, maxScore: 159, desc: "Đạt bằng PET loại Khá (Grade B - Merit)" },
-      { stage: 5, title: "B1 Distinction Master", minScore: 160, maxScore: 170, desc: "Xuất sắc đạt Grade A (Chứng nhận trình độ B2)" }
-    ];
-
     const BADGES_CATALOG = [
       { id: "first_step", title: "Khởi Hành PET", desc: "Hoàn thành bài luyện tập đầu tiên", icon: "🏅", reqXp: 100 },
       { id: "word_smith", title: "Cây Bút 100 Từ", desc: "Hoàn thành bài viết Writing chuẩn format", icon: "✍️", reqXp: 350 },
@@ -504,14 +558,14 @@
         classesList: [],
         attendanceSessions: [],
         attendanceReports: [],
-        notifications: []
+        notifications: [],
+        deletedIds: []
       };
     }
 
     // ==================== CONTINUOUS REALTIME SYNC & MERGE ENGINE ====================
     let realtimeSyncChannel = null;
     let isApplyingRemoteSync = false;
-    let lastKnownSyncStamp = 0;
     window.cloudSyncReady = false;
     window.cloudSyncError = "";
     let cloudPushTimer = null;
@@ -521,7 +575,6 @@
     function sanitizeForCloud(obj, depth = 0) {
       if (depth > 8 || obj === null || obj === undefined) return null;
       if (typeof obj === "string") {
-        // Strip large base64 data URLs so Firestore documents stay well below the 1MB limit
         if (obj.startsWith("data:") && obj.length > 4000) {
           return "";
         }
@@ -658,9 +711,9 @@
         ? "Cloud Đã Đồng Bộ"
         : window.cloudSyncError
           ? "Chế độ Local (Bấm để đồng bộ)"
-          : "Đang kết nối Cloud...";
+          : "Đồng bộ tức thì";
       if (authBadge) {
-        authBadge.textContent = window.cloudSyncReady ? "● Cloud Sync Sẵn Sàng" : "● Chế độ Local";
+        authBadge.textContent = window.cloudSyncReady ? "● Cloud Sync Sẵn Sàng" : "● Đồng Bộ Sẵn Sàng";
       }
       if (!lbl) return;
       if (customText) {
@@ -677,15 +730,22 @@
       const def = createDefaultState();
       try {
         const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(BACKUP_STORAGE_KEY);
-        if (!raw) return def;
+        if (!raw) {
+          window.appState = def;
+          return def;
+        }
         const parsed = JSON.parse(raw);
-        return mergeFullStates(def, parsed);
+        const merged = mergeFullStates(def, parsed);
+        window.appState = merged;
+        return merged;
       } catch (e) {
+        window.appState = def;
         return def;
       }
     }
 
     let appState = loadState();
+    window.appState = appState;
 
     function escapeHtml(str) {
       return String(str ?? "")
@@ -749,6 +809,7 @@
       try {
         appState.lastSyncTimestamp = Date.now();
         appState.syncRevision = (Number(appState.syncRevision) || 0) + 1;
+        window.appState = appState;
         const serialized = JSON.stringify(appState);
         localStorage.setItem(STORAGE_KEY, serialized);
         localStorage.setItem(BACKUP_STORAGE_KEY, serialized);
@@ -765,7 +826,11 @@
         if (!isApplyingRemoteSync) {
           clearTimeout(cloudPushTimer);
           cloudPushTimer = setTimeout(() => {
-            pushCloudBucketsNow();
+            if (typeof window.pushCloudBucketsNow === "function") {
+              window.pushCloudBucketsNow();
+            } else {
+              pushCloudBucketsNow();
+            }
           }, 120);
         }
       } catch (e) {}
@@ -783,7 +848,12 @@
             if (!msg || msg.senderId === window.__HILNG_TAB_ID__) return;
             if (msg.type === "STATE_UPDATE" && msg.payload) {
               isApplyingRemoteSync = true;
+              const prevUser = appState.currentUser;
+              const prevTab = appState.activeTab;
               appState = mergeFullStates(appState, msg.payload);
+              if (prevUser) appState.currentUser = prevUser;
+              if (prevTab) appState.activeTab = prevTab;
+              window.appState = appState;
               try {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
               } catch (e) {}
@@ -801,7 +871,12 @@
             try {
               const incoming = JSON.parse(ev.newValue);
               isApplyingRemoteSync = true;
+              const prevUser = appState.currentUser;
+              const prevTab = appState.activeTab;
               appState = mergeFullStates(appState, incoming);
+              if (prevUser) appState.currentUser = prevUser;
+              if (prevTab) appState.activeTab = prevTab;
+              window.appState = appState;
               isApplyingRemoteSync = false;
               updateSyncStatusLabel("Đã đồng bộ tab khác");
               if (appState.currentUser) {
@@ -1412,6 +1487,12 @@
       a.click();
     }
 
+    function downloadStudentHomeworkFile(asgId) {
+      const asg = (appState.assignments || []).find(a => a.id === asgId);
+      if (!asg || !asg.submittedFile) return;
+      downloadStoredFileObject(asg.submittedFile, asg.title || "bailam");
+    }
+
     function renderCurrentView() {
       const container = document.getElementById("main-content");
       const titleEl = document.getElementById("header-page-title");
@@ -1621,7 +1702,6 @@
                   <thead>
                     <tr class="bg-slate-100/90 dark:bg-slate-800/90 border-b border-slate-200 dark:border-slate-700 text-[11px] uppercase text-slate-500">
                       <th class="p-3">Học sinh</th>
-                      <th class="p-3">Email & Mật khẩu</th>
                       <th class="p-3">Lớp</th>
                       <th class="p-3 text-center">R / L / W / S</th>
                       <th class="p-3 text-center">Overall</th>
@@ -1638,7 +1718,7 @@
                         <tr>
                           <td class="p-3">
                             <div class="font-extrabold text-sm">${escapeHtml(stu.name)}</div>
-                            <div class="text-[11px] text-slate-500">${escapeHtml(stu.phone || "Chưa có SĐT")}</div>
+                            <div class="text-[11px] text-slate-500">${escapeHtml(stu.email)} ${stu.phone ? `• ${escapeHtml(stu.phone)}` : ""}</div>
                           </td>
                           <td class="p-3 font-bold text-indigo-600 dark:text-indigo-400">${escapeHtml(getClassNameById(stu.classId))}</td>
                           <td class="p-3 text-center font-mono">
@@ -2839,12 +2919,6 @@
       });
     }
 
-    function downloadExamAttachmentFile(examId) {
-      const ex = appState.exams.find(e => e.id === examId);
-      if (!ex || !ex.attachmentFile) return;
-      downloadStoredFileObject(ex.attachmentFile, ex.title);
-    }
-
     function addTeacherDraftQuestion() {
       teacherDraftQuestions.push({
         type: "mcq",
@@ -3289,7 +3363,6 @@
 
       container.innerHTML = `
         <div class="space-y-8">
-          <!-- Reward Claims & Delivery Confirmation -->
           ${claims.length > 0 ? `
             <div class="glass-panel rounded-3xl p-6 space-y-4 border-l-4 border-emerald-500">
               <div class="flex items-center justify-between">
@@ -3317,7 +3390,6 @@
             </div>
           ` : ""}
 
-          <!-- Rewards Management -->
           <div class="glass-panel rounded-3xl p-6 space-y-5">
             <div>
               <h2 class="font-display font-extrabold text-xl">🎁 Quản Lý Phần Quà Đổi XP (Khóa / Mở Quà & Slot)</h2>
@@ -3353,7 +3425,6 @@
             </div>
           </div>
 
-          <!-- Level System Configuration -->
           <div class="glass-panel rounded-3xl p-6 space-y-5">
             <div>
               <h2 class="font-display font-extrabold text-xl">📈 Chỉnh Sửa Hệ Thống Level & Danh Hiệu Cấp Độ</h2>
@@ -3381,7 +3452,6 @@
             </button>
           </div>
 
-          <!-- Badges Management (Create, Edit, Lock/Unlock, Delete) -->
           <div class="glass-panel rounded-3xl p-6 space-y-5">
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -3428,7 +3498,6 @@
             </div>
           </div>
 
-          <!-- Daily Quests Management -->
           <div class="glass-panel rounded-3xl p-6 space-y-4">
             <h3 class="font-display font-extrabold text-lg">🎯 Thiết Lập Nhiệm Vụ Thường Ngày Cho Học Sinh</h3>
             <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -3796,12 +3865,201 @@
 
   <!-- ==================== CLOUD REALTIME SYNC ENGINE (CROSS-DEVICE) ==================== -->
   <script>
-    (function setupLocalCloudFallback() {
-      window.cloudSyncReady = false;
-      window.cloudSyncError = "";
-      if (typeof updateSyncStatusLabel === "function") {
-        updateSyncStatusLabel();
+    (function setupCloudRealtimeBridge() {
+      const STORAGE_KEY = "HILNG_PET_STUDIO_STATE_V8";
+      const BACKUP_STORAGE_KEY = "HILNG_PET_STUDIO_BACKUP_V8";
+      const ROOM_CODE = "HILNG_PET_GLOBAL_SYNC_ROOM_V8";
+
+      function readLocalStateSafe() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(BACKUP_STORAGE_KEY);
+          return raw ? JSON.parse(raw) : null;
+        } catch (e) {
+          return null;
+        }
       }
+
+      function writeLocalStateSafe(nextState) {
+        try {
+          const serialized = JSON.stringify(nextState);
+          localStorage.setItem(STORAGE_KEY, serialized);
+          localStorage.setItem(BACKUP_STORAGE_KEY, serialized);
+        } catch (e) {}
+      }
+
+      function mergeSyncedStates(currentState, remoteState) {
+        if (!remoteState || typeof remoteState !== "object") return currentState;
+        const base = currentState && typeof currentState === "object" ? currentState : {};
+        const deletedSet = new Set([
+          ...(Array.isArray(base.deletedIds) ? base.deletedIds : []),
+          ...(Array.isArray(remoteState.deletedIds) ? remoteState.deletedIds : [])
+        ]);
+
+        const mergeList = (a = [], b = []) => {
+          const map = new Map();
+          (Array.isArray(a) ? a : []).forEach(item => {
+            if (!item || !item.id || deletedSet.has(item.id)) return;
+            map.set(item.id, item);
+          });
+          (Array.isArray(b) ? b : []).forEach(item => {
+            if (!item || !item.id || deletedSet.has(item.id)) return;
+            const prev = map.get(item.id);
+            if (!prev) {
+              map.set(item.id, item);
+            } else {
+              const tPrev = Number(prev._updatedAt || 0);
+              const tNext = Number(item._updatedAt || 0);
+              map.set(item.id, tNext >= tPrev ? { ...prev, ...item } : { ...item, ...prev });
+            }
+          });
+          return Array.from(map.values());
+        };
+
+        const mergedProfile = {
+          ...(base.studentProfile || {}),
+          ...(remoteState.studentProfile || {}),
+          skills: {
+            ...((base.studentProfile && base.studentProfile.skills) || {}),
+            ...((remoteState.studentProfile && remoteState.studentProfile.skills) || {})
+          }
+        };
+        mergedProfile.xp = Math.max(
+          Number((base.studentProfile && base.studentProfile.xp) || 0),
+          Number((remoteState.studentProfile && remoteState.studentProfile.xp) || 0)
+        );
+
+        return {
+          ...base,
+          ...remoteState,
+          currentUser: base.currentUser || remoteState.currentUser || null,
+          activeTab: base.activeTab || remoteState.activeTab || "dashboard",
+          deletedIds: Array.from(deletedSet).slice(-500),
+          studentProfile: mergedProfile,
+          studentsList: mergeList(base.studentsList, remoteState.studentsList),
+          teachersList: mergeList(base.teachersList, remoteState.teachersList),
+          classesList: mergeList(base.classesList, remoteState.classesList),
+          exams: mergeList(base.exams, remoteState.exams),
+          assignments: mergeList(base.assignments, remoteState.assignments),
+          courses: mergeList(base.courses, remoteState.courses),
+          resources: mergeList(base.resources, remoteState.resources),
+          rewards: mergeList(base.rewards, remoteState.rewards),
+          rewardClaims: mergeList(base.rewardClaims, remoteState.rewardClaims),
+          customBadges: mergeList(base.customBadges, remoteState.customBadges),
+          quests: mergeList(base.quests, remoteState.quests),
+          attendanceSessions: mergeList(base.attendanceSessions, remoteState.attendanceSessions),
+          attendanceReports: mergeList(base.attendanceReports, remoteState.attendanceReports),
+          notifications: mergeList(base.notifications, remoteState.notifications),
+          lastSyncTimestamp: Math.max(
+            Number(base.lastSyncTimestamp || 0),
+            Number(remoteState.lastSyncTimestamp || 0),
+            Date.now()
+          )
+        };
+      }
+
+      function stripHeavyDataUrls(obj, depth = 0) {
+        if (depth > 8 || obj === null || obj === undefined) return null;
+        if (typeof obj === "string") {
+          if (obj.startsWith("data:") && obj.length > 4000) return "";
+          return obj.length > 25000 ? obj.slice(0, 25000) : obj;
+        }
+        if (typeof obj === "number" || typeof obj === "boolean") return obj;
+        if (Array.isArray(obj)) return obj.slice(0, 300).map(it => stripHeavyDataUrls(it, depth + 1));
+        if (typeof obj === "object") {
+          const out = {};
+          Object.keys(obj).forEach(k => {
+            if (k === "dataUrl") {
+              out[k] = "";
+              return;
+            }
+            const val = stripHeavyDataUrls(obj[k], depth + 1);
+            if (val !== undefined) out[k] = val;
+          });
+          return out;
+        }
+        return null;
+      }
+
+      function applyIncomingSync(incoming) {
+        if (!incoming || typeof incoming !== "object") return;
+        const current = window.appState || readLocalStateSafe() || {};
+        const merged = mergeSyncedStates(current, incoming);
+        if (current && current.currentUser) {
+          merged.currentUser = current.currentUser;
+        }
+        if (current && current.activeTab) {
+          merged.activeTab = current.activeTab;
+        }
+        window.appState = merged;
+        if (typeof appState !== "undefined") {
+          appState = merged;
+        }
+        writeLocalStateSafe(merged);
+        window.cloudSyncReady = true;
+        window.cloudSyncError = "";
+        if (typeof updateSyncStatusLabel === "function") {
+          updateSyncStatusLabel("Đã đồng bộ");
+        }
+        if (merged.currentUser && typeof renderCurrentView === "function") {
+          renderCurrentView();
+          if (typeof refreshIcons === "function") refreshIcons();
+        }
+      }
+
+      async function pushStateToSharedBridge(stateObj) {
+        try {
+          const clean = stripHeavyDataUrls(stateObj);
+          if (!clean) return;
+          const payload = {
+            room: ROOM_CODE,
+            updatedAt: Date.now(),
+            state: clean
+          };
+          if (window.name && window.name.startsWith("HILNG_SHARED_SYNC::")) {
+            window.name = "HILNG_SHARED_SYNC::" + JSON.stringify(payload);
+          }
+          const resp = await fetch("https://kvdb.io/" + ROOM_CODE + "/latest.json", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          }).catch(() => null);
+          if (resp && resp.ok) {
+            window.cloudSyncReady = true;
+            window.cloudSyncError = "";
+          }
+        } catch (e) {}
+      }
+
+      async function pullStateFromSharedBridge() {
+        try {
+          const resp = await fetch("https://kvdb.io/" + ROOM_CODE + "/latest.json?_t=" + Date.now(), {
+            cache: "no-store"
+          }).catch(() => null);
+          if (!resp || !resp.ok) return;
+          const data = await resp.json().catch(() => null);
+          if (data && data.state && Number(data.updatedAt || 0) > Number(window.__lastPulledSyncAt || 0)) {
+            window.__lastPulledSyncAt = Number(data.updatedAt || Date.now());
+            applyIncomingSync(data.state);
+          }
+        } catch (e) {}
+      }
+
+      window.pushCloudBucketsNow = function () {
+        const latest = window.appState || (typeof appState !== "undefined" ? appState : null) || readLocalStateSafe();
+        pushStateToSharedBridge(latest);
+      };
+
+      window.pullCloudStateNow = function () {
+        pullStateFromSharedBridge();
+      };
+
+      setTimeout(() => {
+        pullStateFromSharedBridge();
+      }, 350);
+
+      setInterval(() => {
+        pullStateFromSharedBridge();
+      }, 3500);
     })();
   </script>
 </body>
